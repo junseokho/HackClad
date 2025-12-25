@@ -73,12 +73,13 @@ function allActed(state: any) {
   return state.players.every((p: any) => p.actedThisRound === true);
 }
 
-// phase 진행: forecast -> draw -> action -> (round++ 반복) -> scoring
+// phase 진행: foresight -> draw -> action -> (round++ 반복) -> scoring
 function progress(state: any) {
   if (!allReady(state)) return;
   if (state.finished) return;
 
-  if (state.phase === "forecast") {
+  // phase 이름을 실제 상태 값("foresight")과 맞춘다.
+  if (state.phase === "foresight") {
     // 보스 foresight 1장 공개
     const top = state.boss.deck.shift();
     state.boss.foresight = top ? [top] : [];
@@ -106,7 +107,7 @@ function progress(state: any) {
     }
 
     state.round += 1;
-    state.phase = "forecast";
+    state.phase = "foresight";
   }
 }
 
@@ -147,6 +148,8 @@ export function handleGameSubscribe(
     sendError(client.ws, "Room not found");
     return;
   }
+  // 새 WS 연결로 들어올 때도 해당 room에 속해 있다고 표시해야 이후 broadcast 대상에 포함된다.
+  client.roomId = roomId;
   console.log("[STATE] sent", roomId, "phase=", state.phase, "round=", state.round);
   broadcastRoomState(roomId, buildPayload(state));
 }
@@ -236,9 +239,9 @@ export function handleAdvancePhaseDebug(
   if (state.finished) return;
 
   // 디버그: 강제로 다음 phase로 넘기기
-  if (state.phase === "forecast") state.phase = "draw";
+  if (state.phase === "foresight") state.phase = "draw";
   else if (state.phase === "draw") state.phase = "action";
-  else if (state.phase === "action") state.phase = "forecast";
+  else if (state.phase === "action") state.phase = "foresight";
 
   progress(state);
   broadcastRoomState(roomId, buildPayload(state));
