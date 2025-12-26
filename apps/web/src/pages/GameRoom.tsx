@@ -1,5 +1,5 @@
 // apps/web/src/pages/GameRoom.tsx
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { GameWS } from "../api/ws";
 
@@ -15,6 +15,11 @@ type CladAction =
   | { type: "special"; kind: "homecoming" };
 
 type CladCard = { code: string; name: string; voltage: number; actions: CladAction[] };
+type ActionQueueEntry = { type: "player"; userId: string } | { type: "boss"; cardIndex: number; cardCode: string };
+
+function isPlayerStep(step: ActionQueueEntry): step is { type: "player"; userId: string } {
+  return step.type === "player";
+}
 
 const CLAD_CARDS: Record<string, CladCard> = {
   HacKClaD_Clad_Hydra_Backslam: {
@@ -23,8 +28,8 @@ const CLAD_CARDS: Record<string, CladCard> = {
     voltage: 1,
     actions: [
       { type: "attack", offsets: [{ x: -1, y: -1 }, { x: 0, y: -1 }, { x: 1, y: -1 }, { x: 0, y: -2 }] },
-      { type: "vpDrop", offsets: [{ x: 0, y: -1 }] }
-    ]
+      { type: "vpDrop", offsets: [{ x: 0, y: -1 }] },
+    ],
   },
   HacKClaD_Clad_Hydra_CrashingFootfallsLeft: {
     code: "HacKClaD_Clad_Hydra_CrashingFootfallsLeft",
@@ -43,13 +48,13 @@ const CLAD_CARDS: Record<string, CladCard> = {
           { x: -2, y: -2 },
           { x: -2, y: 0 },
           { x: -2, y: 1 },
-          { x: -2, y: 2 }
-        ]
+          { x: -2, y: 2 },
+        ],
       },
       { type: "summon", offsets: [{ x: -1, y: 1 }] },
       { type: "vpDrop", offsets: [{ x: -1, y: 0 }, { x: -2, y: 0 }] },
-      { type: "move", offset: { x: 0, y: 1 } }
-    ]
+      { type: "move", offset: { x: 0, y: 1 } },
+    ],
   },
   HacKClaD_Clad_Hydra_CrashingFootfallsRight: {
     code: "HacKClaD_Clad_Hydra_CrashingFootfallsRight",
@@ -68,13 +73,13 @@ const CLAD_CARDS: Record<string, CladCard> = {
           { x: 2, y: -2 },
           { x: 2, y: 0 },
           { x: 2, y: 1 },
-          { x: 2, y: 2 }
-        ]
+          { x: 2, y: 2 },
+        ],
       },
       { type: "summon", offsets: [{ x: 1, y: 1 }] },
       { type: "vpDrop", offsets: [{ x: 1, y: 0 }, { x: 2, y: 0 }] },
-      { type: "move", offset: { x: 0, y: 1 } }
-    ]
+      { type: "move", offset: { x: 0, y: 1 } },
+    ],
   },
   HacKClaD_Clad_Hydra_HomecomingInstinct: {
     code: "HacKClaD_Clad_Hydra_HomecomingInstinct",
@@ -82,8 +87,8 @@ const CLAD_CARDS: Record<string, CladCard> = {
     voltage: 3,
     actions: [
       { type: "special", kind: "homecoming" },
-      { type: "summon", offsets: [{ x: 1, y: 2 }, { x: 2, y: -1 }, { x: -2, y: 1 }, { x: -1, y: -2 }] }
-    ]
+      { type: "summon", offsets: [{ x: 1, y: 2 }, { x: 2, y: -1 }, { x: -2, y: 1 }, { x: -1, y: -2 }] },
+    ],
   },
   HacKClaD_Clad_Hydra_IncineratingFlames: {
     code: "HacKClaD_Clad_Hydra_IncineratingFlames",
@@ -102,12 +107,12 @@ const CLAD_CARDS: Record<string, CladCard> = {
           { x: 1, y: 1 },
           { x: 1, y: 2 },
           { x: 2, y: 1 },
-          { x: 2, y: 2 }
-        ]
+          { x: 2, y: 2 },
+        ],
       },
       { type: "summon", offsets: [{ x: 0, y: 1 }] },
-      { type: "turn", dir: "right" }
-    ]
+      { type: "turn", dir: "right" },
+    ],
   },
   HacKClaD_Clad_Hydra_SavageFangs: {
     code: "HacKClaD_Clad_Hydra_SavageFangs",
@@ -116,8 +121,8 @@ const CLAD_CARDS: Record<string, CladCard> = {
     actions: [
       { type: "attack", offsets: [{ x: -1, y: 1 }, { x: 0, y: 1 }, { x: 1, y: 1 }] },
       { type: "vpDrop", offsets: [{ x: 0, y: 1 }] },
-      { type: "turn", dir: "left" }
-    ]
+      { type: "turn", dir: "left" },
+    ],
   },
   HacKClaD_Clad_Hydra_ScorchingBreath: {
     code: "HacKClaD_Clad_Hydra_ScorchingBreath",
@@ -125,14 +130,14 @@ const CLAD_CARDS: Record<string, CladCard> = {
     voltage: 1,
     actions: [
       { type: "attack", offsets: [{ x: -1, y: 2 }, { x: 0, y: 1 }, { x: 0, y: 2 }, { x: 1, y: 2 }] },
-      { type: "vpDrop", offsets: [{ x: 0, y: 2 }] }
-    ]
+      { type: "vpDrop", offsets: [{ x: 0, y: 2 }] },
+    ],
   },
   HacKClaD_Clad_Hydra_Skewer: {
     code: "HacKClaD_Clad_Hydra_Skewer",
     name: "Skewer",
     voltage: 1,
-    actions: [{ type: "summon", offsets: [{ x: -1, y: 0 }, { x: 1, y: 0 }] }]
+    actions: [{ type: "summon", offsets: [{ x: -1, y: 0 }, { x: 1, y: 0 }] }],
   },
   HacKClaD_Clad_Hydra_SpiralAmbushLeft: {
     code: "HacKClaD_Clad_Hydra_SpiralAmbushLeft",
@@ -140,8 +145,8 @@ const CLAD_CARDS: Record<string, CladCard> = {
     voltage: 1,
     actions: [
       { type: "summon", offsets: [{ x: 1, y: 1 }] },
-      { type: "turn", dir: "left" }
-    ]
+      { type: "turn", dir: "left" },
+    ],
   },
   HacKClaD_Clad_Hydra_SpiralAmbushRight: {
     code: "HacKClaD_Clad_Hydra_SpiralAmbushRight",
@@ -149,8 +154,8 @@ const CLAD_CARDS: Record<string, CladCard> = {
     voltage: 1,
     actions: [
       { type: "summon", offsets: [{ x: -1, y: 1 }] },
-      { type: "turn", dir: "right" }
-    ]
+      { type: "turn", dir: "right" },
+    ],
   },
   HacKClaD_Clad_Hydra_SweepingStrike: {
     code: "HacKClaD_Clad_Hydra_SweepingStrike",
@@ -165,12 +170,12 @@ const CLAD_CARDS: Record<string, CladCard> = {
           { x: -1, y: -1 },
           { x: 1, y: 1 },
           { x: 1, y: 0 },
-          { x: 1, y: -1 }
-        ]
+          { x: 1, y: -1 },
+        ],
       },
       { type: "vpDrop", offsets: [{ x: 1, y: 1 }, { x: -1, y: 1 }] },
-      { type: "move", offset: { x: 0, y: 1 } }
-    ]
+      { type: "move", offset: { x: 0, y: 1 } },
+    ],
   },
   HacKClaD_Clad_Hydra_TerrainCrush: {
     code: "HacKClaD_Clad_Hydra_TerrainCrush",
@@ -179,9 +184,9 @@ const CLAD_CARDS: Record<string, CladCard> = {
     actions: [
       { type: "summon", offsets: [{ x: 0, y: -1 }] },
       { type: "move", offset: { x: 0, y: 1 } },
-      { type: "move", offset: { x: 0, y: 1 } }
-    ]
-  }
+      { type: "move", offset: { x: 0, y: 1 } },
+    ],
+  },
 };
 
 function getCladCard(code: string): CladCard | null {
@@ -190,6 +195,8 @@ function getCladCard(code: string): CladCard | null {
 
 // Vite static import for card images
 const CLAD_IMAGES = import.meta.glob("../assets/Clad_Hydra/*", { eager: true, as: "url" }) as Record<string, string>;
+const CLAD_ICON = CLAD_IMAGES["../assets/Clad_Hydra/Hydra_Clad_Icon.webp"];
+const CLAD_REGION_ICON = CLAD_IMAGES["../assets/Clad_Hydra/Hydra_Clad_Region_Icon.webp"];
 
 function cardImage(code: string) {
   const png = CLAD_IMAGES[`../assets/Clad_Hydra/${code}.png`];
@@ -201,7 +208,7 @@ function cardImage(code: string) {
 // Player card images (Rosette-Δ)
 const PLAYER_CARD_IMAGES = import.meta.glob("../assets/Character_Rosette_delta/{Standard,Enhanced}/*", {
   eager: true,
-  as: "url"
+  as: "url",
 }) as Record<string, string>;
 
 const ROSETTE_CARD_DETAILS: Record<
@@ -214,21 +221,21 @@ const ROSETTE_CARD_DETAILS: Record<
     mp: 1,
     vp: 1,
     atk: "ATK 1 · Range (0,1)(0,2) · Multistrike 2",
-    text: "Hits up to 2 targets in range."
+    text: "Hits up to 2 targets in range.",
   },
   HacKClaD_Rosette_Delta_Cards_Block: {
     name: "Block",
     type: "Reaction",
     mp: 0,
     vp: 1,
-    text: "Reduce incoming damage by 2."
+    text: "Reduce incoming damage by 2.",
   },
   HacKClaD_Rosette_Delta_Cards_Move: {
     name: "Advance",
     type: "Support",
     mp: 0,
     vp: 1,
-    text: "Move 1 space."
+    text: "Move 1 space.",
   },
   HacKClaD_Rosette_Delta_Cards_VitalBlow: {
     name: "Vital Blow",
@@ -236,7 +243,7 @@ const ROSETTE_CARD_DETAILS: Record<
     mp: 0,
     vp: 1,
     atk: "ATK 1 · Range (0,1)",
-    text: "If attacking from the front, Repel the Clad after this attack."
+    text: "If attacking from the front, Repel the Clad after this attack.",
   },
   HacKClaD_Rosette_Delta_Cards_Sweep: {
     name: "Sweep",
@@ -244,7 +251,7 @@ const ROSETTE_CARD_DETAILS: Record<
     mp: 0,
     vp: 1,
     atk: "ATK 1 · Range (0,1)",
-    text: "While in discard: when you use your Crack Skill, return this card to your hand."
+    text: "While in discard: when you use your Crack Skill, return this card to your hand.",
   },
   HacKClaD_Rosette_Delta_Cards_Lunge: {
     name: "Lunge",
@@ -252,21 +259,21 @@ const ROSETTE_CARD_DETAILS: Record<
     mp: 0,
     vp: 1,
     atk: "ATK 2 · Range (0,1)",
-    text: "Add +1 to your Injuries Gauge."
+    text: "Add +1 to your Injuries Gauge.",
   },
   HacKClaD_Rosette_Delta_Cards_Determination: {
     name: "Determination",
     type: "Support",
     mp: 1,
     vp: 1,
-    text: "Activate Unyielding."
+    text: "Activate Unyielding.",
   },
   HacKClaD_Rosette_Delta_Cards_Challenge: {
     name: "Challenge",
     type: "Support",
     mp: 0,
     vp: 1,
-    text: "Adjacent only. Turn the Clad to face its front toward you."
+    text: "Adjacent only. Turn the Clad to face its front toward you.",
   },
   HacKClaD_Rosette_Delta_Cards_Riposte: {
     name: "Riposte",
@@ -274,7 +281,7 @@ const ROSETTE_CARD_DETAILS: Record<
     mp: 0,
     vp: 3,
     atk: "ATK 2 · Range (0,1)",
-    text: "If attacking from the front: +1 ATK and discard the top card of your deck."
+    text: "If attacking from the front: +1 ATK and discard the top card of your deck.",
   },
   HacKClaD_Rosette_Delta_Cards_Impale: {
     name: "Impale",
@@ -282,7 +289,7 @@ const ROSETTE_CARD_DETAILS: Record<
     mp: 0,
     vp: 4,
     atk: "ATK 2 · Range (0,1)",
-    text: "After the attack, you may spend 1 CP to turn the Clad's front toward you."
+    text: "After the attack, you may spend 1 CP to turn the Clad's front toward you.",
   },
   HacKClaD_Rosette_Delta_Cards_Ratetsu: {
     name: "Ratetsu",
@@ -290,7 +297,7 @@ const ROSETTE_CARD_DETAILS: Record<
     mp: 0,
     vp: 2,
     atk: "ATK 4 · Range (0,1)",
-    text: "Add +1 to your Injuries Gauge."
+    text: "Add +1 to your Injuries Gauge.",
   },
   HacKClaD_Rosette_Delta_Cards_Reversal: {
     name: "Reversal",
@@ -298,7 +305,7 @@ const ROSETTE_CARD_DETAILS: Record<
     mp: 3,
     vp: 2,
     atk: "ATK 6 · Range (0,1)",
-    text: "If Injuries ≥ 5: +1 ATK and Repel the Clad after this attack."
+    text: "If Injuries ≥ 5: +1 ATK and Repel the Clad after this attack.",
   },
   HacKClaD_Rosette_Delta_Cards_Reap: {
     name: "Reap",
@@ -306,7 +313,7 @@ const ROSETTE_CARD_DETAILS: Record<
     mp: 1,
     vp: 4,
     atk: "ATK 2 · Range (-1,1)(0,1)(1,1) · Multistrike 2",
-    text: "Hits up to 2 targets."
+    text: "Hits up to 2 targets.",
   },
   HacKClaD_Rosette_Delta_Cards_Carnage: {
     name: "Carnage",
@@ -314,24 +321,23 @@ const ROSETTE_CARD_DETAILS: Record<
     mp: 0,
     vp: 4,
     atk: "ATK 3 · Adjacent",
-    text: "Adjacent only. Perform a 3 ATK attack to the Clad and activate Unyielding."
+    text: "Adjacent only. Perform a 3 ATK attack to the Clad and activate Unyielding.",
   },
   HacKClaD_Rosette_Delta_Cards_AuxillaryMana: {
     name: "Auxillary Mana",
     type: "Support",
     mp: 0,
     vp: 4,
-    text: "Add +2 MP. You may spend 1 MP to activate Unyielding."
+    text: "Add +2 MP. You may spend 1 MP to activate Unyielding.",
   },
   HacKClaD_Rosette_Delta_Cards_HundredDemons: {
     name: "Hundred Demons",
     type: "Support",
     mp: 1,
     vp: 3,
-    text: "Discard top card; you may play it. You may perform your Crack Skill an additional time this turn."
-  }
+    text: "Discard top card; you may play it. You may perform your Crack Skill an additional time this turn.",
+  },
 };
-
 
 function playerCardImage(code: string) {
   const webpStd = PLAYER_CARD_IMAGES[`../assets/Character_Rosette_delta/Standard/${code}.webp`];
@@ -343,6 +349,34 @@ function playerCardImage(code: string) {
 
 function playerCardDetail(code: string) {
   return ROSETTE_CARD_DETAILS[code];
+}
+
+function rotateOffset(offset: Vec2, facing: Facing): Vec2 {
+  const { x, y } = offset;
+  if (facing === "N") return { x, y };
+  if (facing === "E") return { x: y, y: -x };
+  if (facing === "S") return { x: -x, y: -y };
+  return { x: -y, y: x }; // W
+}
+
+function turnFacing(current: Facing, dir: "left" | "right"): Facing {
+  if (dir === "left") {
+    if (current === "N") return "W";
+    if (current === "W") return "S";
+    if (current === "S") return "E";
+    return "N";
+  }
+  if (current === "N") return "E";
+  if (current === "E") return "S";
+  if (current === "S") return "W";
+  return "N";
+}
+
+function facingToDeg(facing?: Facing) {
+  if (facing === "E") return 90;
+  if (facing === "S") return 180;
+  if (facing === "W") return -90;
+  return 0;
 }
 
 type GameState = {
@@ -359,7 +393,7 @@ type GameState = {
     position?: { x: number; y: number };
     facing?: Facing;
   };
-  actionQueue?: Array<{ type: "player"; userId: string } | { type: "boss"; cardIndex: number; cardCode: string }>;
+  actionQueue?: ActionQueueEntry[];
   actionIndex?: number;
   currentTurn?: { type: "player"; userId: string } | { type: "boss"; cardIndex: number; cardCode: string } | null;
   players: Array<{
@@ -437,21 +471,91 @@ export default function GameRoom() {
   const me = state?.players.find((p) => p.userId === meId);
   const canAct = state?.phase === "action" && !state?.finished;
   const myTurn = canAct && state?.currentTurn?.type === "player" && state.currentTurn.userId === meId;
+
   const bossVoltage = state?.boss.voltage ?? state?.voltage;
   const bossActionCards = state?.boss.foresight.length
     ? state.boss.foresight.map((code) => getCladCard(code) ?? { code, name: code, voltage: 0, actions: [] })
     : [];
   const bossFacing = state?.boss.facing;
   const bossPosition = state?.boss.position;
-  const actionQueue = state?.actionQueue ?? [];
+  const actionQueue: ActionQueueEntry[] = state?.actionQueue ?? [];
   const actionIndex = state?.actionIndex ?? 0;
-  const currentTurnLabel =
-    state?.currentTurn?.type === "player"
-      ? `Player: ${state.players.find((p) => p.userId === state.currentTurn?.userId)?.nickname ?? ""}`
-      : state?.currentTurn?.type === "boss"
-        ? `Clad Card ${state.currentTurn.cardIndex + 1}`
-        : "대기";
-  const [inspectCard, setInspectCard] = useState<{ code: string; type: "boss" | "player"; title?: string; voltage?: number } | null>(null);
+  const boardCells = useMemo(
+    () =>
+      Array.from({ length: 25 }, (_, idx) => {
+        const row = Math.floor(idx / 5);
+        const col = idx % 5;
+        return { x: col - 2, y: 2 - row };
+      }),
+    []
+  );
+  const cladPosition = bossPosition ?? { x: 0, y: 0 };
+  const cladFacing = bossFacing;
+  const cladRotationDeg = facingToDeg(cladFacing);
+
+  const roundStartRef = useRef<{ round: number; pos: Vec2; facing: Facing } | null>(null);
+  useEffect(() => {
+    if (!state) return;
+    if (state.phase !== "action") {
+      roundStartRef.current = null;
+      return;
+    }
+    if ((state.actionIndex ?? 0) === 0 && state.boss.position && state.boss.facing) {
+      roundStartRef.current = { round: state.round, pos: state.boss.position, facing: state.boss.facing };
+    }
+  }, [state]);
+
+  const summonedEntities = useMemo(() => {
+    if (!state || !state.actionQueue) return [];
+    const startPos = roundStartRef.current?.pos ?? { x: 0, y: 0 };
+    const startFacing = roundStartRef.current?.facing ?? "N";
+    let pos = { ...startPos };
+    let facing: Facing = startFacing;
+    const summons: Array<Vec2 & { facing: Facing }> = [];
+
+    const executedBossSteps = state.actionQueue
+      .slice(0, state.actionIndex ?? 0)
+      .filter((step): step is { type: "boss"; cardIndex: number; cardCode: string } => step.type === "boss");
+
+    for (const step of executedBossSteps) {
+      const card = getCladCard(step.cardCode);
+      if (!card) continue;
+
+      for (const action of card.actions) {
+        if (action.type === "move") {
+          const delta = rotateOffset(action.offset, facing);
+          pos = { x: pos.x + delta.x, y: pos.y + delta.y };
+        } else if (action.type === "turn") {
+          facing = turnFacing(facing, action.dir);
+        } else if (action.type === "special" && action.kind === "homecoming") {
+          pos = { x: 0, y: 0 };
+          facing = "N";
+        } else if (action.type === "summon") {
+          for (const off of action.offsets) {
+            const delta = rotateOffset(off, facing);
+            summons.push({ x: pos.x + delta.x, y: pos.y + delta.y, facing });
+          }
+        }
+      }
+    }
+
+    return summons;
+  }, [state]);
+
+  // ✅ FIX: currentTurn을 지역 변수로 빼서 TS narrowing이 확실히 되게 함
+  const currentTurn = state?.currentTurn;
+  const currentTurnLabel = !currentTurn
+    ? "대기"
+    : currentTurn.type === "player"
+      ? `Player: ${state?.players.find((p) => p.userId === currentTurn.userId)?.nickname ?? ""}`
+      : `Clad Card ${currentTurn.cardIndex + 1}`;
+
+  const [inspectCard, setInspectCard] = useState<{
+    code: string;
+    type: "boss" | "player";
+    title?: string;
+    voltage?: number;
+  } | null>(null);
 
   function playCard(code: string) {
     if (!roomId) return;
@@ -486,24 +590,27 @@ export default function GameRoom() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-100 relative overflow-hidden">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(255,184,107,0.15),_transparent_40%),radial-gradient(circle_at_center,_rgba(255,255,255,0.05),_transparent_55%)]" />
+    <div className="min-h-screen bg-[#07030d] text-slate-100 relative overflow-hidden">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,_rgba(255,0,153,0.18)_0%,_rgba(0,0,0,0.6)_45%,_rgba(0,0,0,0.95)_70%)]" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,_rgba(255,255,255,0.05),_transparent_40%),radial-gradient(circle_at_70%_80%,_rgba(255,118,255,0.08),_transparent_50%)]" />
       <div className="mx-auto w-full max-w-[1500px] px-3 py-4 sm:px-6 relative">
-        <header className="flex items-center justify-between gap-3">
+        <header className="flex items-center justify-between gap-3 rounded-3xl border border-pink-500/25 bg-gradient-to-r from-[#0c0716]/90 via-[#170920]/80 to-[#0c0716]/90 px-4 py-3 shadow-[0_10px_50px_rgba(255,0,153,0.15)]">
           <div>
-            <div className="text-[11px] tracking-wide uppercase text-slate-400">Room</div>
-            <div className="text-sm font-semibold">{state.roomId ?? roomId}</div>
+            <div className="text-[11px] tracking-[0.22em] uppercase text-fuchsia-200/80">Room</div>
+            <div className="text-lg font-semibold text-white drop-shadow-[0_0_12px_rgba(255,0,153,0.35)]">
+              {state.roomId ?? roomId}
+            </div>
           </div>
-          <div className="flex items-center gap-2 text-[11px] text-slate-300">
-            <span className="rounded-full border border-white/10 bg-slate-800/70 px-2 py-1">Round {state.round}</span>
-            <span className="rounded-full border border-amber-500/40 bg-amber-500/20 px-2 py-1 uppercase">
+          <div className="flex items-center gap-2 text-[11px] text-slate-100">
+            <span className="rounded-full border border-pink-400/50 bg-pink-600/30 px-3 py-[6px] shadow-[0_0_18px_rgba(255,0,153,0.28)]">Round {state.round}</span>
+            <span className="rounded-full border border-amber-400/60 bg-amber-500/25 px-3 py-[6px] uppercase shadow-[0_0_18px_rgba(255,184,107,0.35)]">
               {state.phase}
             </span>
-            <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-slate-200">
+            <span className="rounded-full border border-white/15 bg-white/10 px-3 py-[6px] text-[11px] text-slate-50 shadow-[0_0_18px_rgba(255,255,255,0.2)]">
               Turn: {currentTurnLabel}
             </span>
             <button
-              className="ml-2 rounded-2xl border border-white/20 bg-white/10 px-3 py-2 text-xs hover:bg-white/20"
+              className="ml-2 rounded-full border border-pink-400/40 bg-gradient-to-r from-pink-600/60 to-purple-700/60 px-4 py-[9px] text-xs text-white hover:shadow-[0_0_20px_rgba(255,0,153,0.35)]"
               onClick={() => nav("/lobby")}
             >
               로비
@@ -515,7 +622,9 @@ export default function GameRoom() {
           <div className="mt-3 rounded-3xl border border-white/10 bg-slate-900/80 p-4 shadow-lg">
             <div className="flex items-center justify-between text-sm font-semibold">
               <span>Draft Phase - 턴 슬롯 선택</span>
-              <span className="text-[11px] text-slate-400">즉시 효과: 1 드로우 · 2 MP+1 · 3 드로우 후 1장 덱으로 · 4 CP+1</span>
+              <span className="text-[11px] text-slate-400">
+                즉시 효과: 1 드로우 · 2 MP+1 · 3 드로우 후 1장 덱으로 · 4 CP+1
+              </span>
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
               {[1, 2, 3, 4].map((slot) => {
@@ -543,9 +652,7 @@ export default function GameRoom() {
                       {slot === 3 && "드로우 1 후 1장 덱으로"}
                       {slot === 4 && "CP +1"}
                     </div>
-                    {takenBy && !mine && (
-                      <div className="mt-2 text-[11px] text-slate-400">선택: {takenBy.nickname}</div>
-                    )}
+                    {takenBy && !mine && <div className="mt-2 text-[11px] text-slate-400">선택: {takenBy.nickname}</div>}
                   </button>
                 );
               })}
@@ -561,7 +668,7 @@ export default function GameRoom() {
             {state.players.map((p) => (
               <div
                 key={p.userId}
-                className="rounded-2xl border border-white/10 bg-slate-950/80 p-3 flex items-start gap-3 shadow-inner"
+                className="rounded-2xl border border-pink-500/25 bg-gradient-to-br from-[#0d0716] to-[#150a20] p-3 flex items-start gap-3 shadow-[inset_0_0_18px_rgba(0,0,0,0.45)]"
               >
                 <div className="h-14 w-14 shrink-0 rounded-xl bg-gradient-to-br from-amber-500/40 to-rose-500/40 border border-white/10" />
                 <div className="min-w-0 flex-1">
@@ -584,12 +691,13 @@ export default function GameRoom() {
 
           {/* 중앙: 보드 + 핸드 */}
           <main className="flex flex-col gap-4 relative">
-            <div className="relative rounded-3xl border border-white/10 bg-slate-950/60 shadow-[0_0_30px_rgba(255,184,107,0.15)] overflow-hidden">
-              <div className="absolute inset-0 opacity-40 bg-[radial-gradient(circle_at_center,_rgba(255,184,107,0.35),_transparent_35%)]" />
-              <div className="flex items-center justify-between px-4 pt-3 text-xs text-slate-200 relative z-10">
+            <div className="relative rounded-[30px] border border-pink-400/30 bg-gradient-to-br from-[#0c0716] via-[#120a1f] to-[#1b0f2b] shadow-[0_0_50px_rgba(255,0,153,0.25)] overflow-hidden">
+              <div className="absolute inset-0 opacity-40 bg-[radial-gradient(ellipse_at_center,_rgba(255,0,153,0.25),_transparent_55%)]" />
+              <div className="absolute inset-[8%] rounded-full border border-pink-400/20 blur-[1px]" />
+              <div className="flex items-center justify-between px-5 pt-4 text-xs text-fuchsia-100 relative z-10">
                 <div className="flex items-center gap-3">
-                  <span className="rounded border border-white/10 bg-white/5 px-2 py-1 text-[11px]">전장</span>
-                  <span>Boss {state.boss.name ?? "Clad"}</span>
+                  <span className="rounded border border-pink-400/40 bg-pink-600/30 px-2 py-1 text-[11px] uppercase tracking-[0.1em] text-white shadow-[0_0_18px_rgba(255,0,153,0.25)]">전장</span>
+                  <span className="font-semibold text-white">Boss {state.boss.name ?? "Clad"}</span>
                   <span>
                     HP {state.boss.hp}
                     {typeof bossVoltage === "number" ? ` · Voltage ${bossVoltage}` : ""}
@@ -597,94 +705,139 @@ export default function GameRoom() {
                     {bossPosition ? ` · (${bossPosition.x}, ${bossPosition.y})` : ""}
                   </span>
                 </div>
-                <div className="flex items-center gap-2 text-[11px] text-slate-300">
+                <div className="flex items-center gap-2 text-[11px] text-pink-50">
                   {bossActionCards.length === 0 && <span className="text-slate-500">foresight 대기</span>}
                   {bossActionCards.slice(0, 3).map((c, i) => (
                     <button
                       key={c.code + i}
-                      className="flex items-center gap-3 rounded-2xl border border-rose-300/40 bg-rose-500/20 px-3 py-2 shadow-sm hover:border-rose-200/70"
+                      className="flex items-center gap-3 rounded-2xl border border-pink-300/50 bg-pink-700/30 px-3 py-2 shadow-sm hover:border-amber-200/70 hover:shadow-[0_0_20px_rgba(255,184,107,0.25)]"
                       onClick={() => setInspectCard({ code: c.code, type: "boss", title: c.name, voltage: c.voltage })}
                     >
                       {cardImage(c.code) ? (
                         <img
                           src={cardImage(c.code)}
                           alt={c.name}
-                          className="h-16 w-12 rounded-xl object-cover border border-rose-100/40 bg-slate-900/60 shadow-md"
+                          className="h-16 w-12 rounded-xl object-cover border border-pink-100/40 bg-[#0f081a]/70 shadow-[0_0_18px_rgba(255,0,153,0.25)]"
                         />
                       ) : (
-                        <div className="h-16 w-12 rounded-xl bg-slate-800 border border-rose-100/20" />
+                        <div className="h-16 w-12 rounded-xl bg-[#1a0c24] border border-pink-200/25 shadow-[0_0_14px_rgba(255,0,153,0.18)]" />
                       )}
                       <div className="flex flex-col leading-tight text-left">
-                        <span className="text-rose-50 font-semibold text-sm">{c.name}</span>
+                        <span className="text-pink-50 font-semibold text-sm drop-shadow-[0_0_10px_rgba(255,0,153,0.3)]">{c.name}</span>
                         <span className="text-[11px] text-amber-200">Voltage +{c.voltage}</span>
                       </div>
                     </button>
                   ))}
                 </div>
               </div>
-              <div className="relative z-10 p-4 pb-6">
-                <div className="grid grid-cols-5 gap-[6px]">
-                  {Array.from({ length: 25 }).map((_, idx) => (
-                    <div
-                      key={idx}
-                      className="aspect-square rounded-[10px] border border-white/10 bg-slate-900/70 shadow-inner"
-                    />
-                  ))}
+              <div className="relative z-10 p-5 pb-8">
+                <div className="relative mx-auto max-w-[440px] rounded-[28px] border border-pink-500/30 bg-[radial-gradient(ellipse_at_center,_rgba(255,0,153,0.18)_0%,_rgba(10,5,18,0.95)_70%)] px-4 py-4 shadow-[0_0_45px_rgba(255,0,153,0.25)]">
+                  <div className="pointer-events-none absolute inset-[8%] rounded-[24px] border border-amber-300/20" />
+                  <div className="pointer-events-none absolute inset-[14%] rounded-full border border-pink-200/25 blur-[2px]" />
+                  <div className="grid grid-cols-5 gap-[8px]">
+                    {boardCells.map((cell, idx) => {
+                      const isCladHere = cell.x === cladPosition.x && cell.y === cladPosition.y;
+                      const summonsHere = summonedEntities.filter((s) => s.x === cell.x && s.y === cell.y);
+                      return (
+                        <div
+                          key={idx}
+                          className="relative aspect-square rounded-[12px] border border-pink-500/25 bg-gradient-to-br from-[#140a1f] via-[#1d102b] to-[#0f081a] shadow-[inset_0_0_14px_rgba(0,0,0,0.6)] flex items-center justify-center overflow-hidden"
+                        >
+                          {summonsHere.map((s, i) => (
+                            <div
+                              key={`summon-${idx}-${i}`}
+                              className="pointer-events-none absolute inset-[20%] rounded-[12px] border border-amber-300/45 bg-amber-400/10 flex items-center justify-center shadow-[0_8px_18px_rgba(0,0,0,0.35)]"
+                            >
+                              {CLAD_REGION_ICON ? (
+                                <img
+                                  src={CLAD_REGION_ICON}
+                                  alt="Summoned"
+                                  className="h-full w-full object-contain drop-shadow-[0_8px_16px_rgba(0,0,0,0.35)]"
+                                  style={{ transform: `rotate(${facingToDeg(s.facing)}deg)` }}
+                                />
+                              ) : (
+                                <div className="h-full w-full rounded-[10px] bg-emerald-500/30" />
+                              )}
+                            </div>
+                          ))}
+                          {isCladHere && (
+                            <div className="pointer-events-none absolute inset-[14%] rounded-[12px] border border-pink-300/50 bg-pink-600/20 flex items-center justify-center shadow-[0_10px_24px_rgba(0,0,0,0.4)]">
+                              {CLAD_ICON ? (
+                                <img
+                                  src={CLAD_ICON}
+                                  alt="Clad"
+                                  className="h-full w-full object-contain drop-shadow-[0_10px_20px_rgba(0,0,0,0.4)]"
+                                  style={{ transform: `rotate(${cladRotationDeg}deg)` }}
+                                />
+                              ) : (
+                                <div className="h-full w-full rounded-[10px] bg-rose-500/30" />
+                              )}
+                              {cladFacing && (
+                                <div className="absolute -top-2 rounded-full border border-rose-200/40 bg-black/70 px-2 py-[2px] text-[10px] font-semibold text-rose-50">
+                                  {cladFacing}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             </div>
 
-            <div className="rounded-3xl border border-white/10 bg-slate-950/80 p-3 shadow-lg">
-                <div className="flex items-center justify-between">
-                  <div className="text-xs text-slate-300">손패</div>
-                  <div className="text-[11px] text-slate-400">{myTurn ? "행동 가능" : "대기 중"}</div>
-                </div>
-                {!me && <div className="mt-2 text-slate-400">내 정보를 찾는 중...</div>}
-                {me && (
-                  <div className="mt-3 flex flex-wrap gap-3 justify-center">
-                    {me.hand.map((code, idx) => (
-                      <button
-                        key={code + idx}
-                        className="group relative rounded-xl border border-amber-300/30 bg-gradient-to-br from-slate-900 to-slate-950 px-3 py-3 text-left text-sm shadow-[0_8px_20px_rgba(0,0,0,0.45)] hover:border-amber-300/60 hover:shadow-[0_10px_30px_rgba(255,184,107,0.25)] disabled:opacity-40 min-w-[150px] flex flex-col items-center gap-2"
-                        onClick={() => setInspectCard({ code, type: "player" })}
-                        disabled={!myTurn && false}
-                        onMouseEnter={() => setHoveredCard(code)}
-                        onMouseLeave={() => setHoveredCard((prev) => (prev === code ? null : prev))}
-                      >
-                        {playerCardImage(code) ? (
-                          <img
-                            src={playerCardImage(code)}
-                            alt={code}
-                            className="h-24 w-16 rounded-lg border border-amber-200/30 object-cover bg-slate-900/80"
-                          />
-                        ) : (
-                          <div className="h-24 w-16 rounded-lg border border-dashed border-amber-200/30 bg-slate-900/40 text-[10px] text-slate-400 flex items-center justify-center">
-                            이미지 없음
-                          </div>
-                        )}
-                        <div className="text-[11px] text-amber-200">자세히 보기</div>
-                      </button>
-                    ))}
-                    {me.hand.length === 0 && <div className="text-slate-400">카드 없음</div>}
-                  </div>
-                )}
+            <div className="rounded-3xl border border-pink-500/20 bg-gradient-to-br from-[#0c0716] to-[#120b20] p-3 shadow-[0_0_30px_rgba(255,0,153,0.18)]">
+              <div className="flex items-center justify-between">
+                <div className="text-xs text-slate-300">손패</div>
+                <div className="text-[11px] text-slate-400">{myTurn ? "행동 가능" : "대기 중"}</div>
               </div>
-            </main>
+              {!me && <div className="mt-2 text-slate-400">내 정보를 찾는 중...</div>}
+              {me && (
+                <div className="mt-3 flex flex-wrap gap-3 justify-center">
+                  {me.hand.map((code, idx) => (
+                    <button
+                      key={code + idx}
+                      className="group relative rounded-xl border border-amber-300/30 bg-gradient-to-br from-slate-900 to-slate-950 px-3 py-3 text-left text-sm shadow-[0_8px_20px_rgba(0,0,0,0.45)] hover:border-amber-300/60 hover:shadow-[0_10px_30px_rgba(255,184,107,0.25)] disabled:opacity-40 min-w-[150px] flex flex-col items-center gap-2"
+                      onClick={() => setInspectCard({ code, type: "player" })}
+                      disabled={!myTurn && false}
+                      onMouseEnter={() => setHoveredCard(code)}
+                      onMouseLeave={() => setHoveredCard((prev) => (prev === code ? null : prev))}
+                    >
+                      {playerCardImage(code) ? (
+                        <img
+                          src={playerCardImage(code)}
+                          alt={code}
+                          className="h-24 w-16 rounded-lg border border-amber-200/30 object-cover bg-slate-900/80"
+                        />
+                      ) : (
+                        <div className="h-24 w-16 rounded-lg border border-dashed border-amber-200/30 bg-slate-900/40 text-[10px] text-slate-400 flex items-center justify-center">
+                          이미지 없음
+                        </div>
+                      )}
+                      <div className="text-[11px] text-amber-200">자세히 보기</div>
+                    </button>
+                  ))}
+                  {me.hand.length === 0 && <div className="text-slate-400">카드 없음</div>}
+                </div>
+              )}
+            </div>
+          </main>
 
           {/* 우측: 진행 순서 + 액션 + 로그 */}
           <aside className="space-y-3">
-          <div className="rounded-3xl border border-white/10 bg-slate-950/80 p-4 shadow-lg">
-            <div className="text-sm font-semibold">진행 순서</div>
-            <div className="mt-3 flex items-center gap-2 overflow-x-auto">
-              {actionQueue.length === 0 && (
-                <div className="min-w-[140px] rounded-2xl border border-white/10 bg-slate-900/70 px-3 py-2 text-xs text-slate-300">
+            <div className="rounded-3xl border border-pink-500/20 bg-gradient-to-br from-[#0c0716] to-[#120b20] p-4 shadow-[0_0_26px_rgba(255,0,153,0.15)]">
+              <div className="text-sm font-semibold">진행 순서</div>
+              <div className="mt-3 flex items-center gap-2 overflow-x-auto">
+                {actionQueue.length === 0 && (
+                  <div className="min-w-[140px] rounded-2xl border border-white/10 bg-slate-900/70 px-3 py-2 text-xs text-slate-300">
                     대기 중
                   </div>
                 )}
-                {actionQueue.map((step, idx) => {
+                {actionQueue.map((step: ActionQueueEntry, idx) => {
                   const isDone = idx < actionIndex;
                   const isCurrent = idx === actionIndex && state.phase === "action";
-                  if (step.type === "player") {
+                  if (isPlayerStep(step)) {
                     const p = state.players.find((pl) => pl.userId === step.userId);
                     return (
                       <div
@@ -706,7 +859,8 @@ export default function GameRoom() {
                     );
                   }
 
-                  const card = getCladCard(step.cardCode) ?? { code: step.cardCode, name: step.cardCode, voltage: 0, actions: [] };
+                  const card =
+                    getCladCard(step.cardCode) ?? { code: step.cardCode, name: step.cardCode, voltage: 0, actions: [] };
                   return (
                     <div
                       key={`q-${idx}`}
@@ -737,7 +891,7 @@ export default function GameRoom() {
               </div>
             </div>
 
-            <div className="rounded-3xl border border-white/10 bg-slate-950/80 p-4 space-y-2 shadow-lg">
+            <div className="rounded-3xl border border-pink-500/20 bg-gradient-to-br from-[#0c0716] to-[#120b20] p-4 space-y-2 shadow-[0_0_26px_rgba(255,0,153,0.15)]">
               <div className="text-sm font-semibold">액션 패널</div>
               <div className="grid gap-2">
                 {[
@@ -842,7 +996,9 @@ export default function GameRoom() {
             <div className="flex items-center justify-between">
               <div className="text-sm font-semibold text-slate-200">
                 {inspectCard.title ?? inspectCard.code}
-                {inspectCard.type === "boss" && typeof inspectCard.voltage === "number" ? ` · Voltage +${inspectCard.voltage}` : ""}
+                {inspectCard.type === "boss" && typeof inspectCard.voltage === "number"
+                  ? ` · Voltage +${inspectCard.voltage}`
+                  : ""}
               </div>
               <button
                 className="rounded-lg border border-white/10 px-2 py-1 text-xs text-slate-200 hover:bg-white/10"
@@ -853,45 +1009,47 @@ export default function GameRoom() {
             </div>
 
             <div className="mt-3 flex flex-col items-center gap-3">
-                {inspectCard.type === "boss" ? (
-                  cardImage(inspectCard.code) ? (
-                    <img
-                      src={cardImage(inspectCard.code)}
-                      alt={inspectCard.title ?? inspectCard.code}
-                      className="w-full max-w-[260px] rounded-xl border border-rose-200/40 shadow-lg"
-                    />
-                  ) : (
-                    <div className="h-64 w-full max-w-[260px] rounded-xl border border-rose-200/40 bg-slate-800 flex items-center justify-center text-slate-400">
-                      이미지 없음
-                    </div>
-                  )
-                ) : playerCardImage(inspectCard.code) ? (
+              {inspectCard.type === "boss" ? (
+                cardImage(inspectCard.code) ? (
                   <img
-                    src={playerCardImage(inspectCard.code)}
-                    alt={inspectCard.code}
-                    className="w-full max-w-[260px] rounded-xl border border-amber-200/40 shadow-lg"
+                    src={cardImage(inspectCard.code)}
+                    alt={inspectCard.title ?? inspectCard.code}
+                    className="w-full max-w-[260px] rounded-xl border border-rose-200/40 shadow-lg"
                   />
                 ) : (
-                  <div className="h-64 w-full max-w-[260px] rounded-xl border border-amber-200/40 bg-slate-800 flex items-center justify-center text-slate-400">
+                  <div className="h-64 w-full max-w-[260px] rounded-xl border border-rose-200/40 bg-slate-800 flex items-center justify-center text-slate-400">
                     이미지 없음
                   </div>
-                )}
+                )
+              ) : playerCardImage(inspectCard.code) ? (
+                <img
+                  src={playerCardImage(inspectCard.code)}
+                  alt={inspectCard.code}
+                  className="w-full max-w-[260px] rounded-xl border border-amber-200/40 shadow-lg"
+                />
+              ) : (
+                <div className="h-64 w-full max-w-[260px] rounded-xl border border-amber-200/40 bg-slate-800 flex items-center justify-center text-slate-400">
+                  이미지 없음
+                </div>
+              )}
 
-                {inspectCard.type === "player" && playerCardDetail(inspectCard.code) && (
-                  <div className="w-full rounded-xl border border-white/10 bg-slate-900/80 p-3 text-sm text-slate-100 space-y-1">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold">{playerCardDetail(inspectCard.code)?.type}</span>
-                      <span className="text-[11px] text-amber-200">MP {playerCardDetail(inspectCard.code)?.mp}</span>
-                    </div>
-                    {playerCardDetail(inspectCard.code)?.atk && (
-                      <div className="text-[12px] text-slate-200">{playerCardDetail(inspectCard.code)?.atk}</div>
-                    )}
-                    <div className="text-[12px] text-slate-100 whitespace-pre-line">{playerCardDetail(inspectCard.code)?.text}</div>
-                    {typeof playerCardDetail(inspectCard.code)?.vp === "number" && (
-                      <div className="text-[11px] text-emerald-200">VP {playerCardDetail(inspectCard.code)?.vp}</div>
-                    )}
+              {inspectCard.type === "player" && playerCardDetail(inspectCard.code) && (
+                <div className="w-full rounded-xl border border-white/10 bg-slate-900/80 p-3 text-sm text-slate-100 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold">{playerCardDetail(inspectCard.code)?.type}</span>
+                    <span className="text-[11px] text-amber-200">MP {playerCardDetail(inspectCard.code)?.mp}</span>
                   </div>
-                )}
+                  {playerCardDetail(inspectCard.code)?.atk && (
+                    <div className="text-[12px] text-slate-200">{playerCardDetail(inspectCard.code)?.atk}</div>
+                  )}
+                  <div className="text-[12px] text-slate-100 whitespace-pre-line">
+                    {playerCardDetail(inspectCard.code)?.text}
+                  </div>
+                  {typeof playerCardDetail(inspectCard.code)?.vp === "number" && (
+                    <div className="text-[11px] text-emerald-200">VP {playerCardDetail(inspectCard.code)?.vp}</div>
+                  )}
+                </div>
+              )}
 
               {inspectCard.type === "player" && myTurn && (
                 <button
@@ -961,10 +1119,7 @@ function StatBar({
         <span className="text-[10px] text-slate-200">{value}</span>
       </div>
       <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
-        <div
-          className={`h-full rounded-full bg-gradient-to-r ${color}`}
-          style={{ width: `${pct}%` }}
-        />
+        <div className={`h-full rounded-full bg-gradient-to-r ${color}`} style={{ width: `${pct}%` }} />
       </div>
     </div>
   );
