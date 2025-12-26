@@ -79,21 +79,40 @@ async function createPvpRoom(roomId: string, selected: AuthedClient[]) {
     });
   }
 
-  // Boss (Clad) minimal stub
-  const bossDeck = shuffle(["B_PATTERN_1", "B_PATTERN_2", "B_PATTERN_3"]);
-  const foresight = bossDeck.slice(0, 1);
+  const CLAD_BOSS = {
+    name: "Clad Hydra",
+    hp: 40,
+    position: { x: 0, y: 0 },
+    facing: "N" as const
+  };
+
+  const BOSS_DECK = shuffle([
+    "HacKClaD_Clad_Hydra_Backslam",
+    "HacKClaD_Clad_Hydra_CrashingFootfallsLeft",
+    "HacKClaD_Clad_Hydra_CrashingFootfallsRight",
+    "HacKClaD_Clad_Hydra_HomecomingInstinct",
+    "HacKClaD_Clad_Hydra_IncineratingFlames",
+    "HacKClaD_Clad_Hydra_SavageFangs",
+    "HacKClaD_Clad_Hydra_ScorchingBreath",
+    "HacKClaD_Clad_Hydra_Skewer",
+    "HacKClaD_Clad_Hydra_SpiralAmbushLeft",
+    "HacKClaD_Clad_Hydra_SpiralAmbushRight",
+    "HacKClaD_Clad_Hydra_SweepingStrike",
+    "HacKClaD_Clad_Hydra_TerrainCrush"
+  ]);
 
   const state = {
     mode: "pvp",
     finished: false,
     round: 1,
-    phase: "foresight",
+    phase: "forecast",
     voltage: 0,
     boss: {
-      name: "Clad",
-      hp: 30,
-      deck: bossDeck,
-      foresight
+      ...CLAD_BOSS,
+      deck: BOSS_DECK,
+      foresight: [],
+      discard: [],
+      voltage: 0
     },
     players
   };

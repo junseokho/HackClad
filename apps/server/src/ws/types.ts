@@ -5,6 +5,7 @@ export type ClientToServer =
   | { type: "match:leave" }
   | { type: "game:subscribe"; roomId: string }
   | { type: "pvp:ready"; roomId: string }
+  | { type: "pvp:chooseSlot"; roomId: string; slot: 1 | 2 | 3 | 4 }
   | { type: "pvp:playCard"; roomId: string; cardCode: string }
   | { type: "pvp:endTurn"; roomId: string }
   | { type: "pvp:advancePhase"; roomId: string };

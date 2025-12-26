@@ -19,6 +19,7 @@ import { joinMatchmaking, leaveMatchmaking } from "./matchmaking.js";
 import {
   handleGameSubscribe,
   handlePvpReady,
+  handlePvpChooseSlot,
   handlePvpPlayCard,
   handlePvpEndTurn,
   handleAdvancePhaseDebug,
@@ -112,16 +113,21 @@ export function attachWebSocketServer(httpServer: any) {
         return;
       }
 
-      if (msg.type === "pvp:ready") {
-        handlePvpReady(client, msg.roomId, getRoomClients(msg.roomId));
-        return;
-      }
+  if (msg.type === "pvp:ready") {
+    handlePvpReady(client, msg.roomId, getRoomClients(msg.roomId));
+    return;
+  }
 
-      if (msg.type === "pvp:playCard") {
-        handlePvpPlayCard(
-          client,
-          msg.roomId,
-          msg.cardCode,
+  if (msg.type === "pvp:chooseSlot") {
+    handlePvpChooseSlot(client, msg.roomId, msg.slot, getRoomClients(msg.roomId));
+    return;
+  }
+
+  if (msg.type === "pvp:playCard") {
+    handlePvpPlayCard(
+      client,
+      msg.roomId,
+      msg.cardCode,
           getRoomClients(msg.roomId)
         );
         return;
