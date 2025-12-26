@@ -197,6 +197,7 @@ function getCladCard(code: string): CladCard | null {
 const CLAD_IMAGES = import.meta.glob("../assets/Clad_Hydra/*", { eager: true, as: "url" }) as Record<string, string>;
 const CLAD_ICON = CLAD_IMAGES["../assets/Clad_Hydra/Hydra_Clad_Icon.webp"];
 const CLAD_REGION_ICON = CLAD_IMAGES["../assets/Clad_Hydra/Hydra_Clad_Region_Icon.webp"];
+const BOARD_BG = new URL("../assets/board-bg.webp", import.meta.url).href;
 
 function cardImage(code: string) {
   const png = CLAD_IMAGES[`../assets/Clad_Hydra/${code}.png`];
@@ -359,6 +360,16 @@ function rotateOffset(offset: Vec2, facing: Facing): Vec2 {
   return { x: -y, y: x }; // W
 }
 
+// Wrap a coordinate into the 5x5 board centered at (0,0)
+function wrapCoord(v: number, size = 5) {
+  const half = Math.floor(size / 2);
+  return ((((v + half) % size) + size) % size) - half;
+}
+
+function wrapPosition(pos: Vec2, size = 5): Vec2 {
+  return { x: wrapCoord(pos.x, size), y: wrapCoord(pos.y, size) };
+}
+
 function turnFacing(current: Facing, dir: "left" | "right"): Facing {
   if (dir === "left") {
     if (current === "N") return "W";
@@ -489,7 +500,7 @@ export default function GameRoom() {
       }),
     []
   );
-  const cladPosition = bossPosition ?? { x: 0, y: 0 };
+  const cladPosition = wrapPosition(bossPosition ?? { x: 0, y: 0 });
   const cladFacing = bossFacing;
   const cladRotationDeg = facingToDeg(cladFacing);
 
@@ -507,7 +518,7 @@ export default function GameRoom() {
 
   const summonedEntities = useMemo(() => {
     if (!state || !state.actionQueue) return [];
-    const startPos = roundStartRef.current?.pos ?? { x: 0, y: 0 };
+    const startPos = wrapPosition(roundStartRef.current?.pos ?? { x: 0, y: 0 });
     const startFacing = roundStartRef.current?.facing ?? "N";
     let pos = { ...startPos };
     let facing: Facing = startFacing;
@@ -524,7 +535,7 @@ export default function GameRoom() {
       for (const action of card.actions) {
         if (action.type === "move") {
           const delta = rotateOffset(action.offset, facing);
-          pos = { x: pos.x + delta.x, y: pos.y + delta.y };
+          pos = wrapPosition({ x: pos.x + delta.x, y: pos.y + delta.y });
         } else if (action.type === "turn") {
           facing = turnFacing(facing, action.dir);
         } else if (action.type === "special" && action.kind === "homecoming") {
@@ -533,13 +544,14 @@ export default function GameRoom() {
         } else if (action.type === "summon") {
           for (const off of action.offsets) {
             const delta = rotateOffset(off, facing);
-            summons.push({ x: pos.x + delta.x, y: pos.y + delta.y, facing });
+            const wrapped = wrapPosition({ x: pos.x + delta.x, y: pos.y + delta.y });
+            summons.push({ x: wrapped.x, y: wrapped.y, facing });
           }
         }
       }
     }
 
-    return summons;
+    return summons.map((s) => ({ ...wrapPosition(s), facing: s.facing }));
   }, [state]);
 
   // ✅ FIX: currentTurn을 지역 변수로 빼서 TS narrowing이 확실히 되게 함
@@ -618,6 +630,91 @@ export default function GameRoom() {
           </div>
         </header>
 
+        <div className="mt-3 grid gap-3 md:grid-cols-3">
+          <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 shadow-[0_10px_30px_rgba(0,0,0,0.28)] backdrop-blur-sm">
+            <div className="text-[11px] uppercase tracking-[0.18em] text-white/60">Boss status</div>
+            <div className="mt-2 flex items-center justify-between gap-3">
+              <div className="text-lg font-semibold text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.35)]">
+                {state.boss.name ?? "Clad"}
+              </div>
+              <div className="flex items-center gap-2 text-[11px] font-semibold">
+                <span className="rounded-full border border-white/15 bg-black/40 px-3 py-1 text-emerald-200">HP {state.boss.hp}</span>
+                {typeof bossVoltage === "number" && (
+                  <span className="rounded-full border border-white/15 bg-black/40 px-3 py-1 text-amber-200">Volt {bossVoltage}</span>
+                )}
+              </div>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-300">
+              <span className="rounded-full border border-white/10 bg-black/30 px-2 py-1">Facing {bossFacing ?? "-"}</span>
+              <span className="rounded-full border border-white/10 bg-black/30 px-2 py-1">
+                Pos {bossPosition ? `${bossPosition.x}, ${bossPosition.y}` : "-"}
+              </span>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 shadow-[0_10px_30px_rgba(0,0,0,0.28)] backdrop-blur-sm">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-[11px] uppercase tracking-[0.18em] text-white/60">My status</div>
+              {me && (
+                <span
+                  className={`rounded-full border px-2 py-1 text-[11px] ${
+                    myTurn
+                      ? "border-amber-200/60 bg-amber-500/10 text-amber-100"
+                      : "border-white/15 bg-black/30 text-slate-200"
+                  }`}
+                >
+                  {myTurn ? "My turn" : "Waiting"}
+                </span>
+              )}
+            </div>
+            {me ? (
+              <div className="mt-2 grid grid-cols-2 gap-2 text-[12px] text-slate-100">
+                <div className="rounded-xl border border-white/10 bg-black/30 px-3 py-2">
+                  <div className="text-[11px] text-slate-400">MP</div>
+                  <div className="font-semibold text-sky-100">{me.mp}</div>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-black/30 px-3 py-2">
+                  <div className="text-[11px] text-slate-400">CP</div>
+                  <div className="font-semibold text-blue-100">{me.cp}</div>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-black/30 px-3 py-2">
+                  <div className="text-[11px] text-slate-400">VP</div>
+                  <div className="font-semibold text-emerald-100">{me.vp}</div>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-black/30 px-3 py-2">
+                  <div className="text-[11px] text-slate-400">Injury</div>
+                  <div className="font-semibold text-rose-100">{me.injury}</div>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-2 text-sm text-slate-300">???? ??? ???? ?...</div>
+            )}
+          </div>
+
+          <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 shadow-[0_10px_30px_rgba(0,0,0,0.28)] backdrop-blur-sm">
+            <div className="text-[11px] uppercase tracking-[0.18em] text-white/60">Flow</div>
+            <div className="mt-2 grid gap-2 text-sm text-white">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-300">Round</span>
+                <span className="rounded-lg border border-white/15 bg-black/30 px-2 py-1 text-sm font-semibold">#{state.round}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-300">Phase</span>
+                <span className="rounded-lg border border-amber-300/40 bg-amber-500/15 px-2 py-1 text-[12px] font-semibold uppercase tracking-wide">
+                  {state.phase}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-300">Turn</span>
+                <span className="rounded-lg border border-white/15 bg-black/30 px-2 py-1 text-[12px] font-semibold text-slate-50">
+                  {currentTurnLabel}
+                </span>
+              </div>
+            </div>
+            <div className="mt-2 text-[11px] text-slate-400">현재 라운드/페이즈/턴 순서를 표시합니다.</div>
+          </div>
+        </div>
+
         {state.phase === "draft" && (
           <div className="mt-3 rounded-3xl border border-white/10 bg-slate-900/80 p-4 shadow-lg">
             <div className="flex items-center justify-between text-sm font-semibold">
@@ -660,93 +757,116 @@ export default function GameRoom() {
           </div>
         )}
 
-        <div className="mt-4 grid gap-3 xl:grid-cols-[280px_1fr_340px]">
+        <div className="mt-5 grid gap-4 xl:grid-cols-[320px_1fr_360px]">
           {/* 좌측: 캐릭터 상태 패널 */}
           <button className="hidden" onClick={advancePhase} aria-label="advance phase debug" />
-          <aside className="rounded-3xl border border-white/10 bg-gradient-to-b from-slate-900/80 to-slate-950/80 p-4 space-y-3 shadow-lg">
-            <div className="text-sm font-semibold tracking-tight">파티</div>
-            {state.players.map((p) => (
-              <div
-                key={p.userId}
-                className="rounded-2xl border border-pink-500/25 bg-gradient-to-br from-[#0d0716] to-[#150a20] p-3 flex items-start gap-3 shadow-[inset_0_0_18px_rgba(0,0,0,0.45)]"
-              >
-                <div className="h-14 w-14 shrink-0 rounded-xl bg-gradient-to-br from-amber-500/40 to-rose-500/40 border border-white/10" />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm font-semibold truncate">
-                      {p.nickname} {p.userId === meId ? "(me)" : ""}
+          <aside className="rounded-3xl border border-white/12 bg-white/5 p-4 space-y-3 shadow-[0_10px_30px_rgba(0,0,0,0.25)] backdrop-blur-sm">
+            <div className="flex items-center justify-between text-sm font-semibold">
+              <span>파티</span>
+              <span className="text-[11px] text-slate-400">자원 흐름과 현재 턴</span>
+            </div>
+            {state.players.map((p) => {
+              const isCurrent = state.currentTurn?.type === "player" && state.currentTurn.userId === p.userId;
+              const isMe = p.userId === meId;
+              return (
+                <div
+                  key={p.userId}
+                  className={`rounded-2xl border bg-black/30 p-3 flex items-start gap-3 shadow-[0_6px_18px_rgba(0,0,0,0.3)] ${
+                    isCurrent ? "border-amber-300/70 ring-2 ring-amber-200/30" : "border-white/12"
+                  } ${isMe ? "bg-gradient-to-r from-cyan-500/10 via-black/30 to-black/20" : ""}`}
+                >
+                  <div className="h-14 w-14 shrink-0 rounded-xl bg-gradient-to-br from-amber-500/40 to-rose-500/40 border border-white/10" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="text-sm font-semibold truncate">{p.nickname}</div>
+                      {isMe && (
+                        <span className="rounded-full border border-cyan-200/50 bg-cyan-500/10 px-2 py-[2px] text-[11px] text-cyan-100">
+                          me
+                        </span>
+                      )}
+                      {isCurrent && (
+                        <span className="rounded-full border border-amber-200/60 bg-amber-500/15 px-2 py-[2px] text-[11px] text-amber-100">
+                          now
+                        </span>
+                      )}
+                      {p.ready && (
+                        <span className="rounded-full border border-emerald-200/60 bg-emerald-500/15 px-2 py-[2px] text-[11px] text-emerald-100">
+                          ready
+                        </span>
+                      )}
                     </div>
-                    <div className="text-[11px] text-slate-400">{p.actedThisRound ? "대기" : "행동 가능"}</div>
-                  </div>
-                  <div className="mt-2 space-y-1 text-[11px] text-slate-200">
-                    <StatBar label="MP" value={p.mp} max={15} color="from-sky-400 to-cyan-300" />
-                    <StatBar label="CP" value={p.cp} max={10} color="from-blue-400 to-indigo-300" />
-                    <StatBar label="VP" value={p.vp} max={30} color="from-amber-400 to-orange-300" />
-                    <div className="text-[10px] text-rose-300">부상 {p.injury}</div>
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
+                      <span className="rounded-full border border-white/10 bg-white/5 px-2 py-[2px]">
+                        {p.actedThisRound ? "행동 완료" : "행동 대기"}
+                      </span>
+                      {typeof p.chosenSlot === "number" && (
+                        <span className="rounded-full border border-white/10 bg-white/5 px-2 py-[2px]">Slot {p.chosenSlot}</span>
+                      )}
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-slate-200">
+                      <StatBar label="MP" value={p.mp} max={15} color="from-sky-400 to-cyan-300" />
+                      <StatBar label="CP" value={p.cp} max={10} color="from-blue-400 to-indigo-300" />
+                      <StatBar label="VP" value={p.vp} max={30} color="from-amber-400 to-orange-300" />
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] text-slate-400">부상</span>
+                          <span className="text-[10px] font-semibold text-rose-200">{p.injury}</span>
+                        </div>
+                        <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
+                          <div className="h-full w-full rounded-full bg-gradient-to-r from-rose-400 to-rose-300" style={{ width: "100%" }} />
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </aside>
 
           {/* 중앙: 보드 + 핸드 */}
           <main className="flex flex-col gap-4 relative">
-            <div className="relative rounded-[30px] border border-pink-400/30 bg-gradient-to-br from-[#0c0716] via-[#120a1f] to-[#1b0f2b] shadow-[0_0_50px_rgba(255,0,153,0.25)] overflow-hidden">
-              <div className="absolute inset-0 opacity-40 bg-[radial-gradient(ellipse_at_center,_rgba(255,0,153,0.25),_transparent_55%)]" />
-              <div className="absolute inset-[8%] rounded-full border border-pink-400/20 blur-[1px]" />
-              <div className="flex items-center justify-between px-5 pt-4 text-xs text-fuchsia-100 relative z-10">
-                <div className="flex items-center gap-3">
-                  <span className="rounded border border-pink-400/40 bg-pink-600/30 px-2 py-1 text-[11px] uppercase tracking-[0.1em] text-white shadow-[0_0_18px_rgba(255,0,153,0.25)]">전장</span>
-                  <span className="font-semibold text-white">Boss {state.boss.name ?? "Clad"}</span>
-                  <span>
-                    HP {state.boss.hp}
-                    {typeof bossVoltage === "number" ? ` · Voltage ${bossVoltage}` : ""}
-                    {bossFacing ? ` · ${bossFacing}` : ""}
-                    {bossPosition ? ` · (${bossPosition.x}, ${bossPosition.y})` : ""}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2 text-[11px] text-pink-50">
-                  {bossActionCards.length === 0 && <span className="text-slate-500">foresight 대기</span>}
+            <div className="relative rounded-[32px] border border-white/10 bg-black/20 shadow-[0_0_40px_rgba(0,0,0,0.25)] overflow-hidden">
+              <div className="absolute inset-0 opacity-40 bg-[radial-gradient(ellipse_at_center,_rgba(255,255,255,0.12),_transparent_55%)]" />
+              <div className="px-5 pt-4 relative z-10">
+                <div className="flex flex-wrap justify-center gap-4 text-xs text-slate-100">
+                  {bossActionCards.length === 0 && <span className="text-slate-300">foresight 대기</span>}
                   {bossActionCards.slice(0, 3).map((c, i) => (
                     <button
                       key={c.code + i}
-                      className="flex items-center gap-3 rounded-2xl border border-pink-300/50 bg-pink-700/30 px-3 py-2 shadow-sm hover:border-amber-200/70 hover:shadow-[0_0_20px_rgba(255,184,107,0.25)]"
+                      className="rounded-2xl border border-white/20 bg-white/10 px-3 py-3 shadow-sm hover:border-white/40 hover:shadow-[0_0_18px_rgba(255,255,255,0.25)]"
                       onClick={() => setInspectCard({ code: c.code, type: "boss", title: c.name, voltage: c.voltage })}
                     >
                       {cardImage(c.code) ? (
                         <img
                           src={cardImage(c.code)}
                           alt={c.name}
-                          className="h-16 w-12 rounded-xl object-cover border border-pink-100/40 bg-[#0f081a]/70 shadow-[0_0_18px_rgba(255,0,153,0.25)]"
+                          className="h-48 w-32 rounded-2xl object-cover border border-white/30 bg-white/10 shadow-[0_0_12px_rgba(0,0,0,0.35)]"
                         />
                       ) : (
-                        <div className="h-16 w-12 rounded-xl bg-[#1a0c24] border border-pink-200/25 shadow-[0_0_14px_rgba(255,0,153,0.18)]" />
+                        <div className="h-48 w-32 rounded-2xl bg-white/10 border border-white/30 shadow-[0_0_10px_rgba(0,0,0,0.3)]" />
                       )}
-                      <div className="flex flex-col leading-tight text-left">
-                        <span className="text-pink-50 font-semibold text-sm drop-shadow-[0_0_10px_rgba(255,0,153,0.3)]">{c.name}</span>
-                        <span className="text-[11px] text-amber-200">Voltage +{c.voltage}</span>
-                      </div>
                     </button>
                   ))}
                 </div>
               </div>
-              <div className="relative z-10 p-5 pb-8">
-                <div className="relative mx-auto max-w-[440px] rounded-[28px] border border-pink-500/30 bg-[radial-gradient(ellipse_at_center,_rgba(255,0,153,0.18)_0%,_rgba(10,5,18,0.95)_70%)] px-4 py-4 shadow-[0_0_45px_rgba(255,0,153,0.25)]">
-                  <div className="pointer-events-none absolute inset-[8%] rounded-[24px] border border-amber-300/20" />
-                  <div className="pointer-events-none absolute inset-[14%] rounded-full border border-pink-200/25 blur-[2px]" />
-                  <div className="grid grid-cols-5 gap-[8px]">
+              <div className="relative z-10 p-5 pb-7">
+                <div
+                  className="relative mx-auto max-w-[520px] rounded-[30px] border border-white/15 px-5 py-5 shadow-[0_0_40px_rgba(0,0,0,0.35)] overflow-hidden"
+                  style={{ backgroundImage: `url(${BOARD_BG})`, backgroundSize: "cover", backgroundPosition: "center" }}
+                >
+                  <div className="grid grid-cols-5 gap-[10px]">
                     {boardCells.map((cell, idx) => {
                       const isCladHere = cell.x === cladPosition.x && cell.y === cladPosition.y;
                       const summonsHere = summonedEntities.filter((s) => s.x === cell.x && s.y === cell.y);
                       return (
                         <div
                           key={idx}
-                          className="relative aspect-square rounded-[12px] border border-pink-500/25 bg-gradient-to-br from-[#140a1f] via-[#1d102b] to-[#0f081a] shadow-[inset_0_0_14px_rgba(0,0,0,0.6)] flex items-center justify-center overflow-hidden"
+                          className="relative aspect-square rounded-[12px] border border-white/20 bg-black/25 backdrop-blur-[1px] shadow-[inset_0_0_12px_rgba(0,0,0,0.35)] flex items-center justify-center overflow-hidden"
                         >
                           {summonsHere.map((s, i) => (
                             <div
                               key={`summon-${idx}-${i}`}
-                              className="pointer-events-none absolute inset-[20%] rounded-[12px] border border-amber-300/45 bg-amber-400/10 flex items-center justify-center shadow-[0_8px_18px_rgba(0,0,0,0.35)]"
+                              className="pointer-events-none absolute inset-[20%] rounded-[12px] border border-emerald-300/45 bg-emerald-200/30 flex items-center justify-center shadow-[0_8px_18px_rgba(0,0,0,0.35)]"
                             >
                               {CLAD_REGION_ICON ? (
                                 <img
@@ -761,7 +881,7 @@ export default function GameRoom() {
                             </div>
                           ))}
                           {isCladHere && (
-                            <div className="pointer-events-none absolute inset-[14%] rounded-[12px] border border-pink-300/50 bg-pink-600/20 flex items-center justify-center shadow-[0_10px_24px_rgba(0,0,0,0.4)]">
+                            <div className="pointer-events-none absolute inset-[14%] rounded-[12px] border border-amber-500/60 bg-amber-200/60 flex items-center justify-center shadow-[0_10px_24px_rgba(0,0,0,0.35)]">
                               {CLAD_ICON ? (
                                 <img
                                   src={CLAD_ICON}
@@ -770,10 +890,10 @@ export default function GameRoom() {
                                   style={{ transform: `rotate(${cladRotationDeg}deg)` }}
                                 />
                               ) : (
-                                <div className="h-full w-full rounded-[10px] bg-rose-500/30" />
+                                <div className="h-full w-full rounded-[10px] bg-amber-400/60" />
                               )}
                               {cladFacing && (
-                                <div className="absolute -top-2 rounded-full border border-rose-200/40 bg-black/70 px-2 py-[2px] text-[10px] font-semibold text-rose-50">
+                                <div className="absolute -top-2 rounded-full border border-amber-700/50 bg-black/70 px-2 py-[2px] text-[10px] font-semibold text-amber-100">
                                   {cladFacing}
                                 </div>
                               )}
@@ -787,32 +907,42 @@ export default function GameRoom() {
               </div>
             </div>
 
-            <div className="rounded-3xl border border-pink-500/20 bg-gradient-to-br from-[#0c0716] to-[#120b20] p-3 shadow-[0_0_30px_rgba(255,0,153,0.18)]">
-              <div className="flex items-center justify-between">
-                <div className="text-xs text-slate-300">손패</div>
-                <div className="text-[11px] text-slate-400">{myTurn ? "행동 가능" : "대기 중"}</div>
+            <div className="rounded-3xl border border-white/12 bg-white/5 p-4 shadow-[0_10px_30px_rgba(0,0,0,0.25)] backdrop-blur-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs text-slate-300">손패</div>
+                  <div className="text-[11px] text-slate-400">마우스를 올리면 상세 미리보기</div>
+                </div>
+                <div className="flex items-center gap-2 text-[11px] text-slate-400">
+                  <span className="rounded-full border border-white/10 bg-white/5 px-2 py-[6px]">{me?.hand.length ?? 0}장</span>
+                  <span
+                    className={`rounded-full border px-2 py-[6px] ${
+                      myTurn ? "border-amber-200/60 bg-amber-500/15 text-amber-100" : "border-white/12 bg-black/30 text-slate-200"
+                    }`}
+                  >
+                    {myTurn ? "행동 가능" : "대기 중"}
+                  </span>
+                </div>
               </div>
               {!me && <div className="mt-2 text-slate-400">내 정보를 찾는 중...</div>}
               {me && (
-                <div className="mt-3 flex flex-wrap gap-3 justify-center">
+                <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
                   {me.hand.map((code, idx) => (
                     <button
                       key={code + idx}
-                      className="group relative rounded-xl border border-amber-300/30 bg-gradient-to-br from-slate-900 to-slate-950 px-3 py-3 text-left text-sm shadow-[0_8px_20px_rgba(0,0,0,0.45)] hover:border-amber-300/60 hover:shadow-[0_10px_30px_rgba(255,184,107,0.25)] disabled:opacity-40 min-w-[150px] flex flex-col items-center gap-2"
+                      className="group relative w-full max-w-[240px] rounded-xl border border-amber-300/30 bg-gradient-to-br from-slate-900 to-slate-950 px-3 py-3 text-left text-sm shadow-[0_8px_20px_rgba(0,0,0,0.45)] hover:border-amber-300/60 hover:shadow-[0_10px_30px_rgba(255,184,107,0.25)] disabled:opacity-40 flex flex-col items-center gap-3"
                       onClick={() => setInspectCard({ code, type: "player" })}
                       disabled={!myTurn && false}
                       onMouseEnter={() => setHoveredCard(code)}
                       onMouseLeave={() => setHoveredCard((prev) => (prev === code ? null : prev))}
                     >
                       {playerCardImage(code) ? (
-                        <img
-                          src={playerCardImage(code)}
-                          alt={code}
-                          className="h-24 w-16 rounded-lg border border-amber-200/30 object-cover bg-slate-900/80"
-                        />
+                        <div className="w-full aspect-[3/4] rounded-2xl border border-amber-200/30 overflow-hidden bg-slate-900/80">
+                          <img src={playerCardImage(code)} alt={code} className="h-full w-full object-cover" />
+                        </div>
                       ) : (
-                        <div className="h-24 w-16 rounded-lg border border-dashed border-amber-200/30 bg-slate-900/40 text-[10px] text-slate-400 flex items-center justify-center">
-                          이미지 없음
+                        <div className="w-full aspect-[3/4] rounded-2xl border border-dashed border-amber-200/30 bg-slate-900/40 text-[10px] text-slate-400 flex items-center justify-center">
+                          ??? ??
                         </div>
                       )}
                       <div className="text-[11px] text-amber-200">자세히 보기</div>
@@ -826,11 +956,14 @@ export default function GameRoom() {
 
           {/* 우측: 진행 순서 + 액션 + 로그 */}
           <aside className="space-y-3">
-            <div className="rounded-3xl border border-pink-500/20 bg-gradient-to-br from-[#0c0716] to-[#120b20] p-4 shadow-[0_0_26px_rgba(255,0,153,0.15)]">
-              <div className="text-sm font-semibold">진행 순서</div>
+            <div className="rounded-3xl border border-white/12 bg-white/5 p-4 shadow-[0_10px_26px_rgba(0,0,0,0.25)] backdrop-blur-sm">
+              <div className="flex items-center justify-between text-sm font-semibold">
+                <span>진행 순서</span>
+                <span className="text-[11px] text-slate-400">라운드 흐름</span>
+              </div>
               <div className="mt-3 flex items-center gap-2 overflow-x-auto">
                 {actionQueue.length === 0 && (
-                  <div className="min-w-[140px] rounded-2xl border border-white/10 bg-slate-900/70 px-3 py-2 text-xs text-slate-300">
+                  <div className="min-w-[160px] rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-3 text-sm text-slate-200">
                     대기 중
                   </div>
                 )}
@@ -842,7 +975,7 @@ export default function GameRoom() {
                     return (
                       <div
                         key={`q-${idx}`}
-                        className={`flex min-w-[150px] items-center gap-3 rounded-2xl border px-3 py-2 text-xs ${
+                        className={`flex min-w-[170px] items-center gap-3 rounded-2xl border px-4 py-3 text-sm ${
                           isCurrent
                             ? "border-amber-400/60 bg-amber-500/10"
                             : isDone
@@ -850,10 +983,10 @@ export default function GameRoom() {
                               : "border-white/10 bg-slate-900/60"
                         }`}
                       >
-                        <div className="h-8 w-8 rounded-full bg-gradient-to-br from-indigo-400/50 to-sky-400/50" />
+                        <div className="h-10 w-10 rounded-full bg-gradient-to-br from-indigo-400/50 to-sky-400/50" />
                         <div className="min-w-0">
                           <div className="font-semibold truncate">{p?.nickname ?? "Player"}</div>
-                          <div className="text-[10px] text-slate-400">턴 {p?.chosenSlot ?? "-"}</div>
+                          <div className="text-[12px] text-slate-300">턴 {p?.chosenSlot ?? "-"}</div>
                         </div>
                       </div>
                     );
@@ -864,7 +997,7 @@ export default function GameRoom() {
                   return (
                     <div
                       key={`q-${idx}`}
-                      className={`flex min-w-[150px] items-center gap-3 rounded-2xl border px-3 py-2 text-xs ${
+                      className={`flex min-w-[170px] items-center gap-3 rounded-2xl border px-4 py-3 text-sm ${
                         isCurrent
                           ? "border-rose-300/60 bg-rose-500/20"
                           : isDone
@@ -876,14 +1009,14 @@ export default function GameRoom() {
                         <img
                           src={cardImage(card.code)}
                           alt={card.name}
-                          className="h-10 w-8 rounded-[10px] object-cover border border-rose-100/30 bg-slate-900/60"
+                          className="h-12 w-10 rounded-[12px] object-cover border border-rose-100/30 bg-slate-900/60"
                         />
                       ) : (
-                        <div className="h-10 w-8 rounded-[10px] bg-slate-800 border border-rose-100/20" />
+                        <div className="h-12 w-10 rounded-[12px] bg-slate-800 border border-rose-100/20" />
                       )}
                       <div className="min-w-0">
-                        <div className="font-semibold truncate text-[12px]">{card.name}</div>
-                        <div className="text-[11px] text-amber-100">Volt +{card.voltage}</div>
+                        <div className="font-semibold truncate text-[13px]">{card.name}</div>
+                        <div className="text-[12px] text-amber-100">Volt +{card.voltage}</div>
                       </div>
                     </div>
                   );
@@ -891,9 +1024,9 @@ export default function GameRoom() {
               </div>
             </div>
 
-            <div className="rounded-3xl border border-pink-500/20 bg-gradient-to-br from-[#0c0716] to-[#120b20] p-4 space-y-2 shadow-[0_0_26px_rgba(255,0,153,0.15)]">
+            <div className="rounded-3xl border border-white/12 bg-white/5 p-4 space-y-2 shadow-[0_10px_26px_rgba(0,0,0,0.25)] backdrop-blur-sm">
               <div className="text-sm font-semibold">액션 패널</div>
-              <div className="grid gap-2">
+              <div className="grid gap-2 sm:grid-cols-2">
                 {[
                   { label: "이동", icon: "↗", onClick: () => requestCardBurn("이동") },
                   { label: "MP 충전", icon: "⚡", onClick: () => requestCardBurn("MP 충전") },
@@ -903,7 +1036,7 @@ export default function GameRoom() {
                 ].map((a) => (
                   <button
                     key={a.label}
-                    className="flex items-center gap-3 rounded-xl border border-white/10 bg-gradient-to-r from-slate-900 to-slate-950 px-3 py-2 text-left text-sm hover:border-amber-300/50 hover:shadow-[0_6px_18px_rgba(255,184,107,0.25)] disabled:opacity-40"
+                    className="flex items-center gap-3 rounded-xl border border-white/12 bg-black/30 px-3 py-2 text-left text-sm hover:border-amber-300/60 hover:bg-amber-500/10 hover:shadow-[0_6px_18px_rgba(255,184,107,0.2)] disabled:opacity-40"
                     onClick={a.onClick}
                     disabled={!myTurn && a.label !== "턴 종료"}
                   >
@@ -915,7 +1048,7 @@ export default function GameRoom() {
               <div className="text-[11px] text-slate-400">사용 시 패 한 장을 버리는 선택 UI가 필요합니다.</div>
             </div>
 
-            <div className="rounded-3xl border border-white/10 bg-slate-950/85 p-4 space-y-3 shadow-lg">
+            <div className="rounded-3xl border border-white/12 bg-white/5 p-4 space-y-3 shadow-[0_10px_26px_rgba(0,0,0,0.25)] backdrop-blur-sm">
               <div className="flex items-center justify-between text-sm font-semibold">
                 <span>덱 / 버린 / 로그</span>
                 <span className="text-[11px] text-slate-400">상호작용</span>

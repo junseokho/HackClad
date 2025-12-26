@@ -560,8 +560,8 @@ export function handlePvpPlayCard(client: AuthedClient, roomId: string, cardCode
   p.hand.splice(idx, 1);
   p.discard.push(cardCode);
 
-  // player turn 끝
-  markDoneAndAdvance(state);
+  // keep the turn active so the player can chain more cards/skills;
+  // advancing the queue is handled explicitly via endTurn.
   broadcastRoomState(roomId, buildPayload(state));
 }
 
