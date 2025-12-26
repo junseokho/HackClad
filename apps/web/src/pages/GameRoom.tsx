@@ -198,6 +198,153 @@ function cardImage(code: string) {
   return png ?? webp ?? jpg ?? "";
 }
 
+// Player card images (Rosette-Δ)
+const PLAYER_CARD_IMAGES = import.meta.glob("../assets/Character_Rosette_delta/{Standard,Enhanced}/*", {
+  eager: true,
+  as: "url"
+}) as Record<string, string>;
+
+const ROSETTE_CARD_DETAILS: Record<
+  string,
+  { name: string; type: string; mp: number; vp?: number; atk?: string; text: string; tag?: string }
+> = {
+  HacKClaD_Rosette_Delta_Cards_Shoot: {
+    name: "Shoot",
+    type: "Attack",
+    mp: 1,
+    vp: 1,
+    atk: "ATK 1 · Range (0,1)(0,2) · Multistrike 2",
+    text: "Hits up to 2 targets in range."
+  },
+  HacKClaD_Rosette_Delta_Cards_Block: {
+    name: "Block",
+    type: "Reaction",
+    mp: 0,
+    vp: 1,
+    text: "Reduce incoming damage by 2."
+  },
+  HacKClaD_Rosette_Delta_Cards_Move: {
+    name: "Advance",
+    type: "Support",
+    mp: 0,
+    vp: 1,
+    text: "Move 1 space."
+  },
+  HacKClaD_Rosette_Delta_Cards_VitalBlow: {
+    name: "Vital Blow",
+    type: "Attack",
+    mp: 0,
+    vp: 1,
+    atk: "ATK 1 · Range (0,1)",
+    text: "If attacking from the front, Repel the Clad after this attack."
+  },
+  HacKClaD_Rosette_Delta_Cards_Sweep: {
+    name: "Sweep",
+    type: "Attack",
+    mp: 0,
+    vp: 1,
+    atk: "ATK 1 · Range (0,1)",
+    text: "While in discard: when you use your Crack Skill, return this card to your hand."
+  },
+  HacKClaD_Rosette_Delta_Cards_Lunge: {
+    name: "Lunge",
+    type: "Attack",
+    mp: 0,
+    vp: 1,
+    atk: "ATK 2 · Range (0,1)",
+    text: "Add +1 to your Injuries Gauge."
+  },
+  HacKClaD_Rosette_Delta_Cards_Determination: {
+    name: "Determination",
+    type: "Support",
+    mp: 1,
+    vp: 1,
+    text: "Activate Unyielding."
+  },
+  HacKClaD_Rosette_Delta_Cards_Challenge: {
+    name: "Challenge",
+    type: "Support",
+    mp: 0,
+    vp: 1,
+    text: "Adjacent only. Turn the Clad to face its front toward you."
+  },
+  HacKClaD_Rosette_Delta_Cards_Riposte: {
+    name: "Riposte",
+    type: "Attack",
+    mp: 0,
+    vp: 3,
+    atk: "ATK 2 · Range (0,1)",
+    text: "If attacking from the front: +1 ATK and discard the top card of your deck."
+  },
+  HacKClaD_Rosette_Delta_Cards_Impale: {
+    name: "Impale",
+    type: "Attack",
+    mp: 0,
+    vp: 4,
+    atk: "ATK 2 · Range (0,1)",
+    text: "After the attack, you may spend 1 CP to turn the Clad's front toward you."
+  },
+  HacKClaD_Rosette_Delta_Cards_Ratetsu: {
+    name: "Ratetsu",
+    type: "Attack",
+    mp: 0,
+    vp: 2,
+    atk: "ATK 4 · Range (0,1)",
+    text: "Add +1 to your Injuries Gauge."
+  },
+  HacKClaD_Rosette_Delta_Cards_Reversal: {
+    name: "Reversal",
+    type: "Attack",
+    mp: 3,
+    vp: 2,
+    atk: "ATK 6 · Range (0,1)",
+    text: "If Injuries ≥ 5: +1 ATK and Repel the Clad after this attack."
+  },
+  HacKClaD_Rosette_Delta_Cards_Reap: {
+    name: "Reap",
+    type: "Attack",
+    mp: 1,
+    vp: 4,
+    atk: "ATK 2 · Range (-1,1)(0,1)(1,1) · Multistrike 2",
+    text: "Hits up to 2 targets."
+  },
+  HacKClaD_Rosette_Delta_Cards_Carnage: {
+    name: "Carnage",
+    type: "Reaction",
+    mp: 0,
+    vp: 4,
+    atk: "ATK 3 · Adjacent",
+    text: "Adjacent only. Perform a 3 ATK attack to the Clad and activate Unyielding."
+  },
+  HacKClaD_Rosette_Delta_Cards_AuxillaryMana: {
+    name: "Auxillary Mana",
+    type: "Support",
+    mp: 0,
+    vp: 4,
+    text: "Add +2 MP. You may spend 1 MP to activate Unyielding."
+  },
+  HacKClaD_Rosette_Delta_Cards_HundredDemons: {
+    name: "Hundred Demons",
+    type: "Support",
+    mp: 1,
+    vp: 3,
+    text: "Discard top card; you may play it. You may perform your Crack Skill an additional time this turn."
+  }
+};
+
+
+function playerCardImage(code: string) {
+  const webpStd = PLAYER_CARD_IMAGES[`../assets/Character_Rosette_delta/Standard/${code}.webp`];
+  const webpEnh = PLAYER_CARD_IMAGES[`../assets/Character_Rosette_delta/Enhanced/${code}.webp`];
+  const pngStd = PLAYER_CARD_IMAGES[`../assets/Character_Rosette_delta/Standard/${code}.png`];
+  const pngEnh = PLAYER_CARD_IMAGES[`../assets/Character_Rosette_delta/Enhanced/${code}.png`];
+  return webpStd ?? webpEnh ?? pngStd ?? pngEnh ?? "";
+}
+
+function playerCardDetail(code: string) {
+  return ROSETTE_CARD_DETAILS[code];
+}
+
 type GameState = {
   roomId?: string;
   mode: "pvp";
@@ -304,6 +451,7 @@ export default function GameRoom() {
       : state?.currentTurn?.type === "boss"
         ? `Clad Card ${state.currentTurn.cardIndex + 1}`
         : "대기";
+  const [inspectCard, setInspectCard] = useState<{ code: string; type: "boss" | "player"; title?: string; voltage?: number } | null>(null);
 
   function playCard(code: string) {
     if (!roomId) return;
@@ -452,24 +600,25 @@ export default function GameRoom() {
                 <div className="flex items-center gap-2 text-[11px] text-slate-300">
                   {bossActionCards.length === 0 && <span className="text-slate-500">foresight 대기</span>}
                   {bossActionCards.slice(0, 3).map((c, i) => (
-                    <div
+                    <button
                       key={c.code + i}
-                      className="flex items-center gap-2 rounded-full border border-rose-300/30 bg-rose-500/20 px-2 py-1 shadow-sm"
+                      className="flex items-center gap-3 rounded-2xl border border-rose-300/40 bg-rose-500/20 px-3 py-2 shadow-sm hover:border-rose-200/70"
+                      onClick={() => setInspectCard({ code: c.code, type: "boss", title: c.name, voltage: c.voltage })}
                     >
                       {cardImage(c.code) ? (
                         <img
                           src={cardImage(c.code)}
                           alt={c.name}
-                          className="h-7 w-5 rounded-[6px] object-cover border border-rose-100/30 bg-slate-900/60"
+                          className="h-16 w-12 rounded-xl object-cover border border-rose-100/40 bg-slate-900/60 shadow-md"
                         />
                       ) : (
-                        <div className="h-7 w-5 rounded-[6px] bg-slate-800 border border-rose-100/20" />
+                        <div className="h-16 w-12 rounded-xl bg-slate-800 border border-rose-100/20" />
                       )}
-                      <div className="flex flex-col leading-tight">
-                        <span className="text-rose-50 font-semibold text-[11px]">{c.name}</span>
-                        <span className="text-[10px] text-amber-200">V+{c.voltage}</span>
+                      <div className="flex flex-col leading-tight text-left">
+                        <span className="text-rose-50 font-semibold text-sm">{c.name}</span>
+                        <span className="text-[11px] text-amber-200">Voltage +{c.voltage}</span>
                       </div>
-                    </div>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -486,53 +635,49 @@ export default function GameRoom() {
             </div>
 
             <div className="rounded-3xl border border-white/10 bg-slate-950/80 p-3 shadow-lg">
-              <div className="flex items-center justify-between">
-                <div className="text-xs text-slate-300">손패</div>
-                <div className="text-[11px] text-slate-400">{myTurn ? "행동 가능" : "대기 중"}</div>
+                <div className="flex items-center justify-between">
+                  <div className="text-xs text-slate-300">손패</div>
+                  <div className="text-[11px] text-slate-400">{myTurn ? "행동 가능" : "대기 중"}</div>
+                </div>
+                {!me && <div className="mt-2 text-slate-400">내 정보를 찾는 중...</div>}
+                {me && (
+                  <div className="mt-3 flex flex-wrap gap-3 justify-center">
+                    {me.hand.map((code, idx) => (
+                      <button
+                        key={code + idx}
+                        className="group relative rounded-xl border border-amber-300/30 bg-gradient-to-br from-slate-900 to-slate-950 px-3 py-3 text-left text-sm shadow-[0_8px_20px_rgba(0,0,0,0.45)] hover:border-amber-300/60 hover:shadow-[0_10px_30px_rgba(255,184,107,0.25)] disabled:opacity-40 min-w-[150px] flex flex-col items-center gap-2"
+                        onClick={() => setInspectCard({ code, type: "player" })}
+                        disabled={!myTurn && false}
+                        onMouseEnter={() => setHoveredCard(code)}
+                        onMouseLeave={() => setHoveredCard((prev) => (prev === code ? null : prev))}
+                      >
+                        {playerCardImage(code) ? (
+                          <img
+                            src={playerCardImage(code)}
+                            alt={code}
+                            className="h-24 w-16 rounded-lg border border-amber-200/30 object-cover bg-slate-900/80"
+                          />
+                        ) : (
+                          <div className="h-24 w-16 rounded-lg border border-dashed border-amber-200/30 bg-slate-900/40 text-[10px] text-slate-400 flex items-center justify-center">
+                            이미지 없음
+                          </div>
+                        )}
+                        <div className="text-[11px] text-amber-200">자세히 보기</div>
+                      </button>
+                    ))}
+                    {me.hand.length === 0 && <div className="text-slate-400">카드 없음</div>}
+                  </div>
+                )}
               </div>
-              {!me && <div className="mt-2 text-slate-400">내 정보를 찾는 중...</div>}
-              {me && (
-                <div className="mt-3 flex flex-wrap gap-2 justify-center">
-                  {me.hand.map((code, idx) => (
-                    <button
-                      key={code + idx}
-                      className="group relative rounded-xl border border-amber-300/30 bg-gradient-to-br from-slate-900 to-slate-950 px-3 py-3 text-left text-sm shadow-[0_8px_20px_rgba(0,0,0,0.45)] hover:border-amber-300/60 hover:shadow-[0_10px_30px_rgba(255,184,107,0.25)] disabled:opacity-40"
-                      onClick={() => playCard(code)}
-                      disabled={!myTurn}
-                      onMouseEnter={() => setHoveredCard(code)}
-                      onMouseLeave={() => setHoveredCard((prev) => (prev === code ? null : prev))}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="font-semibold">{code}</div>
-                          <div className="text-[11px] text-slate-400">커서 시 확대</div>
-                        </div>
-                        <div className="text-[11px] text-amber-200">PLAY</div>
-                      </div>
-                      <div className="mt-2 hidden group-hover:block text-xs text-slate-100">
-                        확대된 카드 이미지/설명
-                      </div>
-                    </button>
-                  ))}
-                  {me.hand.length === 0 && <div className="text-slate-400">카드 없음</div>}
-                </div>
-              )}
-              {hoveredCard && (
-                <div className="mt-3 rounded-2xl border border-white/10 bg-slate-900/80 p-3 text-sm shadow-inner">
-                  <div className="font-semibold text-amber-200">{hoveredCard}</div>
-                  <div className="mt-1 text-xs text-slate-300">확대된 카드 설명 자리</div>
-                </div>
-              )}
-            </div>
-          </main>
+            </main>
 
           {/* 우측: 진행 순서 + 액션 + 로그 */}
           <aside className="space-y-3">
-            <div className="rounded-3xl border border-white/10 bg-slate-950/80 p-4 shadow-lg">
-              <div className="text-sm font-semibold">진행 순서</div>
-              <div className="mt-3 flex items-center gap-2 overflow-x-auto">
-                {actionQueue.length === 0 && (
-                  <div className="min-w-[140px] rounded-2xl border border-white/10 bg-slate-900/70 px-3 py-2 text-xs text-slate-300">
+          <div className="rounded-3xl border border-white/10 bg-slate-950/80 p-4 shadow-lg">
+            <div className="text-sm font-semibold">진행 순서</div>
+            <div className="mt-3 flex items-center gap-2 overflow-x-auto">
+              {actionQueue.length === 0 && (
+                <div className="min-w-[140px] rounded-2xl border border-white/10 bg-slate-900/70 px-3 py-2 text-xs text-slate-300">
                     대기 중
                   </div>
                 )}
@@ -690,6 +835,79 @@ export default function GameRoom() {
           </aside>
         </div>
       </div>
+
+      {inspectCard && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4">
+          <div className="w-full max-w-[420px] rounded-2xl border border-white/15 bg-slate-900/90 p-4 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-semibold text-slate-200">
+                {inspectCard.title ?? inspectCard.code}
+                {inspectCard.type === "boss" && typeof inspectCard.voltage === "number" ? ` · Voltage +${inspectCard.voltage}` : ""}
+              </div>
+              <button
+                className="rounded-lg border border-white/10 px-2 py-1 text-xs text-slate-200 hover:bg-white/10"
+                onClick={() => setInspectCard(null)}
+              >
+                닫기
+              </button>
+            </div>
+
+            <div className="mt-3 flex flex-col items-center gap-3">
+                {inspectCard.type === "boss" ? (
+                  cardImage(inspectCard.code) ? (
+                    <img
+                      src={cardImage(inspectCard.code)}
+                      alt={inspectCard.title ?? inspectCard.code}
+                      className="w-full max-w-[260px] rounded-xl border border-rose-200/40 shadow-lg"
+                    />
+                  ) : (
+                    <div className="h-64 w-full max-w-[260px] rounded-xl border border-rose-200/40 bg-slate-800 flex items-center justify-center text-slate-400">
+                      이미지 없음
+                    </div>
+                  )
+                ) : playerCardImage(inspectCard.code) ? (
+                  <img
+                    src={playerCardImage(inspectCard.code)}
+                    alt={inspectCard.code}
+                    className="w-full max-w-[260px] rounded-xl border border-amber-200/40 shadow-lg"
+                  />
+                ) : (
+                  <div className="h-64 w-full max-w-[260px] rounded-xl border border-amber-200/40 bg-slate-800 flex items-center justify-center text-slate-400">
+                    이미지 없음
+                  </div>
+                )}
+
+                {inspectCard.type === "player" && playerCardDetail(inspectCard.code) && (
+                  <div className="w-full rounded-xl border border-white/10 bg-slate-900/80 p-3 text-sm text-slate-100 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold">{playerCardDetail(inspectCard.code)?.type}</span>
+                      <span className="text-[11px] text-amber-200">MP {playerCardDetail(inspectCard.code)?.mp}</span>
+                    </div>
+                    {playerCardDetail(inspectCard.code)?.atk && (
+                      <div className="text-[12px] text-slate-200">{playerCardDetail(inspectCard.code)?.atk}</div>
+                    )}
+                    <div className="text-[12px] text-slate-100 whitespace-pre-line">{playerCardDetail(inspectCard.code)?.text}</div>
+                    {typeof playerCardDetail(inspectCard.code)?.vp === "number" && (
+                      <div className="text-[11px] text-emerald-200">VP {playerCardDetail(inspectCard.code)?.vp}</div>
+                    )}
+                  </div>
+                )}
+
+              {inspectCard.type === "player" && myTurn && (
+                <button
+                  className="w-full rounded-xl border border-amber-300/50 bg-amber-500/20 px-3 py-2 text-sm font-semibold text-amber-100 hover:bg-amber-500/30"
+                  onClick={() => {
+                    playCard(inspectCard.code);
+                    setInspectCard(null);
+                  }}
+                >
+                  이 카드 사용하기
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {(showDeckDetail || showDiscardDetail) && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">

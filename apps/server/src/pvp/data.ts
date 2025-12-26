@@ -9,23 +9,38 @@ export type CardDef = {
 };
 
 export const SAMPLE_PLAYER_CARDS: CardDef[] = [
-  { code: "ATK_1", name: "Strike", mpCost: 0, damage: 2, gainMp: 0, gainCp: 0, vpCard: 0 },
-  { code: "ATK_2", name: "Pierce", mpCost: 1, damage: 4, gainMp: 0, gainCp: 0, vpCard: 0 },
-  { code: "CHG_1", name: "Focus", mpCost: 0, damage: 0, gainMp: 2, gainCp: 0, vpCard: 0 },
-  { code: "CP_1", name: "Rewire", mpCost: 0, damage: 0, gainMp: 0, gainCp: 1, vpCard: 0 },
-  { code: "ATK_3", name: "Overclock", mpCost: 2, damage: 7, gainMp: 0, gainCp: 0, vpCard: 0 }
+  // Rosette-Δ Standard (8)
+  { code: "HacKClaD_Rosette_Delta_Cards_Shoot", name: "Shoot", mpCost: 1, damage: 1, gainMp: 0, gainCp: 0, vpCard: 1 },
+  { code: "HacKClaD_Rosette_Delta_Cards_Block", name: "Block", mpCost: 0, damage: 0, gainMp: 0, gainCp: 0, vpCard: 1 },
+  { code: "HacKClaD_Rosette_Delta_Cards_Move", name: "Advance", mpCost: 0, damage: 0, gainMp: 0, gainCp: 0, vpCard: 1 },
+  { code: "HacKClaD_Rosette_Delta_Cards_VitalBlow", name: "Vital Blow", mpCost: 0, damage: 1, gainMp: 0, gainCp: 0, vpCard: 1 },
+  { code: "HacKClaD_Rosette_Delta_Cards_Sweep", name: "Sweep", mpCost: 0, damage: 1, gainMp: 0, gainCp: 0, vpCard: 1 },
+  { code: "HacKClaD_Rosette_Delta_Cards_Lunge", name: "Lunge", mpCost: 0, damage: 2, gainMp: 0, gainCp: 0, vpCard: 1 },
+  { code: "HacKClaD_Rosette_Delta_Cards_Determination", name: "Determination", mpCost: 1, damage: 0, gainMp: 0, gainCp: 0, vpCard: 1 },
+  { code: "HacKClaD_Rosette_Delta_Cards_Challenge", name: "Challenge", mpCost: 0, damage: 0, gainMp: 0, gainCp: 0, vpCard: 1 },
+
+  // Rosette-Δ Enhanced (8)
+  { code: "HacKClaD_Rosette_Delta_Cards_Riposte", name: "Riposte", mpCost: 0, damage: 2, gainMp: 0, gainCp: 0, vpCard: 3 },
+  { code: "HacKClaD_Rosette_Delta_Cards_Impale", name: "Impale", mpCost: 0, damage: 2, gainMp: 0, gainCp: 0, vpCard: 4 },
+  { code: "HacKClaD_Rosette_Delta_Cards_Ratetsu", name: "Ratetsu", mpCost: 0, damage: 4, gainMp: 0, gainCp: 0, vpCard: 2 },
+  { code: "HacKClaD_Rosette_Delta_Cards_Reversal", name: "Reversal", mpCost: 3, damage: 6, gainMp: 0, gainCp: 0, vpCard: 2 },
+  { code: "HacKClaD_Rosette_Delta_Cards_Reap", name: "Reap", mpCost: 1, damage: 2, gainMp: 0, gainCp: 0, vpCard: 4 },
+  { code: "HacKClaD_Rosette_Delta_Cards_Carnage", name: "Carnage", mpCost: 0, damage: 3, gainMp: 0, gainCp: 0, vpCard: 4 },
+  { code: "HacKClaD_Rosette_Delta_Cards_AuxillaryMana", name: "Auxillary Mana", mpCost: 0, damage: 0, gainMp: 2, gainCp: 0, vpCard: 4 },
+  { code: "HacKClaD_Rosette_Delta_Cards_HundredDemons", name: "Hundred Demons", mpCost: 1, damage: 0, gainMp: 0, gainCp: 0, vpCard: 3 }
 ];
 
 export const STARTER_DECK_9: string[] = [
-  "ATK_1",
-  "ATK_1",
-  "ATK_1",
-  "ATK_2",
-  "CHG_1",
-  "CHG_1",
-  "CP_1",
-  "ATK_1",
-  "ATK_3"
+  // Base 8 standard cards + 1 chosen enhanced (default: Riposte)
+  "HacKClaD_Rosette_Delta_Cards_Shoot",
+  "HacKClaD_Rosette_Delta_Cards_Block",
+  "HacKClaD_Rosette_Delta_Cards_Move",
+  "HacKClaD_Rosette_Delta_Cards_VitalBlow",
+  "HacKClaD_Rosette_Delta_Cards_Sweep",
+  "HacKClaD_Rosette_Delta_Cards_Lunge",
+  "HacKClaD_Rosette_Delta_Cards_Determination",
+  "HacKClaD_Rosette_Delta_Cards_Challenge",
+  "HacKClaD_Rosette_Delta_Cards_Riposte"
 ];
 
 export type CladCard = { code: string; name: string; voltageDelta: number; damageAll: number };

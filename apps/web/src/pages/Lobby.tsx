@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { httpGet } from "../api/http";
 
@@ -7,19 +7,42 @@ type MeResp = {
     id: string;
     username: string;
     nickname: string;
+    selectedCharacterId?: string | null;
+    selectedCharacter?: {
+      id: string;
+      code: string;
+      name: string;
+      description: string;
+      imageUrl?: string | null;
+    } | null;
   };
 };
 
 type Mode = "solo" | "coop" | "pvp";
 
 function modeLabel(mode: Mode) {
-  if (mode === "solo") return "솔로전";
-  if (mode === "coop") return "협동전";
-  return "경쟁전";
+  if (mode === "solo") return "솔로";
+  if (mode === "coop") return "협동";
+  return "경쟁";
+}
+
+// Static image lookup for Rosette-Δ (and future characters if added)
+const CHAR_IMAGES = import.meta.glob("../assets/Character_Rosette_delta/Illust/*", {
+  eager: true,
+  as: "url"
+}) as Record<string, string>;
+
+function findCharImage(path?: string | null) {
+  if (!path) return "";
+  const filename = path.split("/").pop();
+  if (!filename) return "";
+  const key = Object.keys(CHAR_IMAGES).find((k) => k.endsWith(`/${filename}`));
+  return key ? CHAR_IMAGES[key] : "";
 }
 
 export default function Lobby() {
   const nav = useNavigate();
+  const token = useMemo(() => localStorage.getItem("token") ?? "", []);
   const [me, setMe] = useState<MeResp | null>(null);
   const [error, setError] = useState("");
 
@@ -27,7 +50,6 @@ export default function Lobby() {
   const [pickedMode, setPickedMode] = useState<Mode>("solo");
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
     if (!token) {
       nav("/login");
       return;
@@ -36,7 +58,7 @@ export default function Lobby() {
     httpGet<MeResp>("/api/me", token)
       .then(setMe)
       .catch((e: any) => setError(e?.message ?? "Failed"));
-  }, [nav]);
+  }, [nav, token]);
 
   function logout() {
     localStorage.removeItem("token");
@@ -67,10 +89,13 @@ export default function Lobby() {
   if (!me) {
     return (
       <div className="min-h-screen bg-black text-white flex items-center justify-center">
-        <div className="text-white/70">로딩중...</div>
+        <div className="text-white/70">로드중...</div>
       </div>
     );
   }
+
+  const selectedChar = me.user.selectedCharacter ?? null;
+  const charImage = selectedChar ? findCharImage(selectedChar.imageUrl ?? undefined) || selectedChar.imageUrl || "" : "";
 
   return (
     <div className="min-h-screen text-white">
@@ -91,7 +116,7 @@ export default function Lobby() {
         {/* Top Bar: nickname only */}
         <div className="flex items-center justify-between gap-3">
           <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3">
-            <div className="text-xs text-white/70">프로필</div>
+            <div className="text-xs text-white/70">닉네임</div>
             <div className="text-base font-extrabold leading-tight">{me.user.nickname}</div>
           </div>
 
@@ -112,18 +137,22 @@ export default function Lobby() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-xs text-white/70">현재 캐릭터</div>
-                  <div className="text-lg font-black tracking-tight">캐릭터 이미지</div>
+                  <div className="text-lg font-black tracking-tight">{selectedChar?.name ?? "미선택"}</div>
                   <div className="mt-1 text-xs text-white/60">
-                    이 영역에 나중에 선택한 캐릭터 일러스트/모델이 표시됨
+                    우측 버튼에서 캐릭터를 선택하면 이미지와 설명이 표시됩니다.
                   </div>
                 </div>
               </div>
 
               <div className="mt-5 flex h-[320px] items-center justify-center rounded-3xl border border-white/10 bg-black/20 sm:h-[420px]">
-                <div className="text-center">
-                  <div className="text-5xl font-black tracking-tight sm:text-6xl">캐릭터</div>
-                  <div className="mt-2 text-5xl font-black tracking-tight sm:text-6xl">아트</div>
-                </div>
+                {charImage ? (
+                  <img src={charImage} alt={selectedChar?.name ?? "Character"} className="h-full w-full object-contain" />
+                ) : (
+                  <div className="text-center">
+                    <div className="text-3xl font-black tracking-tight sm:text-4xl">캐릭터 선택</div>
+                    <div className="mt-2 text-sm text-white/70">우측의 캐릭터 버튼을 눌러 선택하세요.</div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -134,7 +163,7 @@ export default function Lobby() {
             <div className="p-4 sm:p-6">
               {modePanel === "main" ? (
                 <>
-                  <div className="text-xs text-white/70">전투 선택</div>
+                  <div className="text-xs text-white/70">게임 모드 선택</div>
                   <div className="mt-1 text-xl font-black">모드 선택</div>
 
                   <div className="mt-6 grid gap-3">
@@ -142,33 +171,30 @@ export default function Lobby() {
                       className="h-16 rounded-3xl border border-white/10 bg-purple-500/25 px-5 text-left text-lg font-black tracking-tight shadow-[0_0_30px_rgba(180,80,255,0.25)] hover:bg-purple-500/30"
                       onClick={() => goMode("coop")}
                     >
-                      협동전
-                      <div className="text-xs font-semibold text-white/70">2/3/4인 보스 레이드 협동</div>
+                      협동
+                      <div className="text-xs font-semibold text-white/70">2/3/4인 보스 레이드</div>
                     </button>
 
                     <button
                       className="h-16 rounded-3xl border border-white/10 bg-pink-500/25 px-5 text-left text-lg font-black tracking-tight shadow-[0_0_30px_rgba(255,80,180,0.22)] hover:bg-pink-500/30"
                       onClick={() => goMode("pvp")}
                     >
-                      경쟁전
-                      <div className="text-xs font-semibold text-white/70">보스 레이드 점수 경쟁</div>
+                      경쟁
+                      <div className="text-xs font-semibold text-white/70">보스 처치 점수 레이스</div>
                     </button>
 
                     <button
                       className="h-16 rounded-3xl border border-white/10 bg-white/10 px-5 text-left text-lg font-black tracking-tight hover:bg-white/15"
                       onClick={() => goMode("solo")}
                     >
-                      솔로전
-                      <div className="text-xs font-semibold text-white/70">혼자 연습/시나리오</div>
+                      솔로
+                      <div className="text-xs font-semibold text-white/70">혼자 연습/튜토리얼</div>
                     </button>
                   </div>
                 </>
               ) : (
                 <>
-                  <button
-                    className="text-sm text-white/80 hover:text-white"
-                    onClick={() => setModePanel("main")}
-                  >
+                  <button className="text-sm text-white/80 hover:text-white" onClick={() => setModePanel("main")}>
                     {"<"} 뒤로 {modeLabel(pickedMode)}
                   </button>
 
@@ -186,7 +212,7 @@ export default function Lobby() {
                       onClick={() => startMatch(3)}
                     >
                       3인전
-                      <div className="text-xs font-semibold text-white/70">표준 매칭</div>
+                      <div className="text-xs font-semibold text-white/70">중간 난이도</div>
                     </button>
                     <button
                       className="h-16 rounded-3xl border border-white/10 bg-white/10 px-5 text-left text-lg font-black hover:bg-white/15"

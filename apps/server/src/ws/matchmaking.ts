@@ -48,10 +48,39 @@ async function createPvpRoom(roomId: string, selected: AuthedClient[]) {
       orderBy: { updatedAt: "desc" }
     });
 
+    // If no active deck exists for this character, create a default 9-card deck from its pool
+    let ensuredDeck = deck;
+    if (!ensuredDeck) {
+      const pool = await prisma.characterCard.findMany({
+        where: { characterId },
+        include: { card: true },
+        orderBy: [{ isStarter: "desc" }, { id: "asc" }]
+      });
+
+      const picked: Array<{ cardId: string; count: number }> = [];
+      let total = 0;
+      for (const p of pool) {
+        if (total >= 9) break;
+        picked.push({ cardId: p.cardId, count: 1 });
+        total += 1;
+      }
+
+      ensuredDeck = await prisma.deck.create({
+        data: {
+          userId: c.user.id,
+          characterId,
+          name: "기본 덱",
+          isActive: true,
+          cards: { create: picked }
+        },
+        include: { cards: { include: { card: true } } }
+      });
+    }
+
     // Expand deck to card codes list
     const expanded: string[] = [];
-    if (deck) {
-      for (const dc of deck.cards) {
+    if (ensuredDeck) {
+      for (const dc of ensuredDeck.cards) {
         for (let i = 0; i < dc.count; i++) expanded.push(dc.card.code);
       }
     }
