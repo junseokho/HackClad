@@ -76,6 +76,21 @@ export function broadcastRoomState(roomId: string, state: any) {
   broadcastToRoom(roomId, { type: "game:state", roomId, state });
 }
 
+// Remove rooms that no longer have any connected clients.
+export function pruneEmptyRooms(): number {
+  let removed = 0;
+  for (const [roomId] of rooms.entries()) {
+    if (getRoomClients(roomId).length === 0) {
+      rooms.delete(roomId);
+      removed += 1;
+    }
+  }
+  if (removed > 0) {
+    console.log(`[ROOM] pruned ${removed} empty room(s)`);
+  }
+  return removed;
+}
+
 // --------------------
 // cleanup
 // --------------------
@@ -95,6 +110,10 @@ export function removeFromQueue(client: AuthedClient) {
 export function cleanupClient(ws: WebSocket) {
   const c = clients.get(ws);
   if (!c) return;
+  const roomId = c.roomId;
   removeFromQueue(c);
   clients.delete(ws);
+  if (roomId) {
+    pruneEmptyRooms();
+  }
 }

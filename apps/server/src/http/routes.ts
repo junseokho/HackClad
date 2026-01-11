@@ -84,7 +84,10 @@ export function registerRoutes(app: Express) {
 
   // Characters list
   app.get("/api/characters", requireAuth, async (req: AuthedRequest, res) => {
-    const chars = await prisma.character.findMany({ orderBy: { createdAt: "asc" } });
+    const chars = await prisma.character.findMany({
+      where: { code: { notIn: ["CH_WITCH_A", "CH_WITCH_B"] } },
+      orderBy: { createdAt: "asc" }
+    });
     res.json({
       characters: chars.map((c) => ({
         id: c.id,
@@ -157,13 +160,12 @@ export function registerRoutes(app: Express) {
         orderBy: [{ isStarter: "desc" }, { id: "asc" }]
       });
 
+      // default: 8 starters + 1 enhanced if available
+      const starters = pool.filter((p) => p.isStarter).slice(0, 8);
+      const enhancedPick = pool.filter((p) => !p.isStarter)[0] ?? pool.slice(8, 9)[0];
       const picked: Array<{ cardId: string; count: number }> = [];
-      let total = 0;
-      for (const p of pool) {
-        if (total >= 9) break;
-        picked.push({ cardId: p.cardId, count: 1 });
-        total += 1;
-      }
+      for (const p of starters) picked.push({ cardId: p.cardId, count: 1 });
+      if (enhancedPick) picked.push({ cardId: enhancedPick.cardId, count: 1 });
 
       deck = await prisma.deck.create({
         data: {

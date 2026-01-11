@@ -26,11 +26,13 @@ function shuffle<T>(arr: T[]): T[] {
 async function createPvpRoom(roomId: string, selected: AuthedClient[]) {
   // Load each player's selected character + active deck (9 cards total)
   const players = [];
-  for (const c of selected) {
+  for (let idx = 0; idx < selected.length; idx++) {
+    const c = selected[idx];
     const user = await prisma.user.findUnique({
       where: { id: c.user.id },
       include: { selectedCharacter: true }
     });
+    const selectedCharacter = user?.selectedCharacter ?? null;
 
     if (!user?.selectedCharacterId) {
       // fallback: pick first character
@@ -41,70 +43,97 @@ async function createPvpRoom(roomId: string, selected: AuthedClient[]) {
     }
 
     const characterId = (user?.selectedCharacterId ?? (await prisma.user.findUnique({ where: { id: c.user.id } }))?.selectedCharacterId) as string;
+    const character =
+      selectedCharacter ??
+      (characterId ? await prisma.character.findUnique({ where: { id: characterId } }) : null);
 
+    const pool = await prisma.characterCard.findMany({
+      where: { characterId },
+      include: { card: true },
+      orderBy: [{ isStarter: "desc" }, { id: "asc" }]
+    });
+
+    // Ensure we have a deck record (for persistence), but starter/enhanced options come from pool
     const deck = await prisma.deck.findFirst({
       where: { userId: c.user.id, characterId, isActive: true },
       include: { cards: { include: { card: true } } },
       orderBy: { updatedAt: "desc" }
     });
 
-    // If no active deck exists for this character, create a default 9-card deck from its pool
-    let ensuredDeck = deck;
-    if (!ensuredDeck) {
-      const pool = await prisma.characterCard.findMany({
-        where: { characterId },
-        include: { card: true },
-        orderBy: [{ isStarter: "desc" }, { id: "asc" }]
-      });
-
+    if (!deck) {
+      const starters = pool.filter((p) => p.isStarter).slice(0, 8);
+      const enhancedPick = pool.filter((p) => !p.isStarter)[0] ?? pool.slice(8, 9)[0];
       const picked: Array<{ cardId: string; count: number }> = [];
-      let total = 0;
-      for (const p of pool) {
-        if (total >= 9) break;
-        picked.push({ cardId: p.cardId, count: 1 });
-        total += 1;
-      }
+      for (const p of starters) picked.push({ cardId: p.cardId, count: 1 });
+      if (enhancedPick) picked.push({ cardId: enhancedPick.cardId, count: 1 });
 
-      ensuredDeck = await prisma.deck.create({
+      await prisma.deck.create({
         data: {
           userId: c.user.id,
           characterId,
           name: "기본 덱",
           isActive: true,
           cards: { create: picked }
-        },
-        include: { cards: { include: { card: true } } }
+        }
       });
     }
 
-    // Expand deck to card codes list
-    const expanded: string[] = [];
-    if (ensuredDeck) {
-      for (const dc of ensuredDeck.cards) {
-        for (let i = 0; i < dc.count; i++) expanded.push(dc.card.code);
-      }
-    }
+    // Build starter-only deck (8 starters) and enhanced options (non-starters) from pool
+    const starters = pool.filter((p) => p.isStarter).slice(0, 8);
+    const enhanced = pool.filter((p) => !p.isStarter);
+    const starterCodes = starters.map((c) => c.card.code);
+    const enhancedOptions = enhanced.map((c) => c.card.code);
 
-    // Ensure 9 cards (fallback: fill with basic strike if needed)
-    while (expanded.length < 9) expanded.push("C_BASIC_STRIKE");
-
-    const deckShuffled = shuffle(expanded);
-    const hand = deckShuffled.slice(0, 3);
-    const rest = deckShuffled.slice(3);
+    const ENTRY_POINTS: Array<{ x: number; y: number }> = [
+      { x: -2, y: -1 }, // Entry A
+      { x: 2, y: 1 }, // Entry B
+      { x: -1, y: 2 }, // Entry C
+      { x: 1, y: -2 } // Entry D
+    ];
+    const entry = ENTRY_POINTS[idx] ?? null;
 
     players.push({
       userId: c.user.id,
       nickname: c.user.nickname,
       characterId,
+      characterCode: character?.code ?? null,
+      characterImageUrl: character?.imageUrl ?? null,
       ready: false,
       actedThisRound: false,
+      standbySlot: idx + 1, // Standby 1 is rightmost; initial order follows join order
+      standbyCard: starterCodes.shift() ?? null, // draw top card to standby
+      turnCard: null,
       vp: 0,
+      vpShards: 0,
       injury: 0,
       mp: 0,
       cp: 0,
-      deck: rest,
-      hand,
-      discard: []
+      reformUsedThisRound: false,
+      basicUses: { move: 0, mp: 0, dmgReduce: 0 },
+      position: entry,
+      facing: "N",
+      deck: shuffle(starterCodes),
+      hand: [],
+      discard: [],
+      unyieldingActive: false,
+      crackBonus: 0,
+      crackUsedTurn: 0,
+      crackAtkBonus: 0,
+      crackUsedRound: 0,
+      nextAttackMultistrike: 0,
+      attacksPlayedThisTurn: 0,
+      supportsPlayedThisTurn: 0,
+      counterBattery: 0,
+      conibearTraps: character?.code === "CH_MIA_DELTA" ? [false, false] : [],
+      damageDealtTurn: 0,
+      damageDealtRound: 0,
+      miaShardBonusRound: false,
+      miaStealthUsedRound: false,
+      convergenceSealUsedTurn: false,
+      turnCardAttachment: null,
+      enhancedDeck: enhancedOptions.slice(),
+      needsEnhancedPick: enhancedOptions.length > 0,
+      enhancedOptions
     });
   }
 
@@ -115,35 +144,36 @@ async function createPvpRoom(roomId: string, selected: AuthedClient[]) {
     facing: "N" as const
   };
 
+  // Start with voltage 1 cards only; higher-voltage cards get injected later as the deck depletes.
   const BOSS_DECK = shuffle([
     "HacKClaD_Clad_Hydra_Backslam",
-    "HacKClaD_Clad_Hydra_CrashingFootfallsLeft",
-    "HacKClaD_Clad_Hydra_CrashingFootfallsRight",
-    "HacKClaD_Clad_Hydra_HomecomingInstinct",
-    "HacKClaD_Clad_Hydra_IncineratingFlames",
     "HacKClaD_Clad_Hydra_SavageFangs",
     "HacKClaD_Clad_Hydra_ScorchingBreath",
     "HacKClaD_Clad_Hydra_Skewer",
     "HacKClaD_Clad_Hydra_SpiralAmbushLeft",
-    "HacKClaD_Clad_Hydra_SpiralAmbushRight",
-    "HacKClaD_Clad_Hydra_SweepingStrike",
-    "HacKClaD_Clad_Hydra_TerrainCrush"
+    "HacKClaD_Clad_Hydra_SpiralAmbushRight"
   ]);
 
   const state = {
     mode: "pvp",
+    roomId,
     finished: false,
     round: 1,
     phase: "forecast",
-    voltage: 0,
+    voltage: 1,
     boss: {
       ...CLAD_BOSS,
       deck: BOSS_DECK,
       foresight: [],
       discard: [],
-      voltage: 0
+      voltage: 1,
+      voltageTier: 1
     },
-    players
+    legions: [],
+    legionAttackDone: false,
+    legionAttackReady: false,
+    players,
+    shardsOnBoard: {}
   };
 
   rooms.set(roomId, state);

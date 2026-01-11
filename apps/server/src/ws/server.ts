@@ -10,6 +10,7 @@ import {
   sendError,
   getRoomClients,
   cleanupClient,
+  pruneEmptyRooms,
 } from "./state.js";
 
 import { verifyToken } from "../http/auth.js";
@@ -20,13 +21,28 @@ import {
   handleGameSubscribe,
   handlePvpReady,
   handlePvpChooseSlot,
+  handlePvpPickEnhanced,
   handlePvpPlayCard,
+  handlePvpBasicAction,
+  handlePvpCpAction,
+  handlePvpMiaTrapAttack,
+  handlePvpReact,
+  handlePvpCrack,
+  handlePvpEnter,
+  handleGameChoice,
   handlePvpEndTurn,
   handleAdvancePhaseDebug,
 } from "./game.js";
 
 export function attachWebSocketServer(httpServer: any) {
   const wss = new WebSocketServer({ server: httpServer });
+
+  // Periodically prune empty rooms in case clients disconnected unexpectedly.
+  setInterval(() => {
+    pruneEmptyRooms();
+  }, 60_000);
+  // Also prune once on startup.
+  pruneEmptyRooms();
 
   wss.on("connection", (ws: WebSocket, _req: IncomingMessage) => {
     console.log("[WS] connection");
@@ -119,7 +135,21 @@ export function attachWebSocketServer(httpServer: any) {
   }
 
   if (msg.type === "pvp:chooseSlot") {
-    handlePvpChooseSlot(client, msg.roomId, msg.slot, getRoomClients(msg.roomId));
+    handlePvpChooseSlot(
+      client,
+      msg.roomId,
+      msg.slot,
+      msg.turnCardCode,
+      msg.spawn ?? null,
+      msg.returnCardCode ?? null,
+      msg.moveTarget ?? null,
+      getRoomClients(msg.roomId)
+    );
+    return;
+  }
+
+  if (msg.type === "pvp:pickEnhanced") {
+    handlePvpPickEnhanced(client, msg.roomId, msg.cardCode, getRoomClients(msg.roomId));
     return;
   }
 
@@ -128,20 +158,56 @@ export function attachWebSocketServer(httpServer: any) {
       client,
       msg.roomId,
       msg.cardCode,
-          getRoomClients(msg.roomId)
-        );
-        return;
-      }
+      msg.dir,
+      getRoomClients(msg.roomId)
+    );
+    return;
+  }
 
-      if (msg.type === "pvp:endTurn") {
-        handlePvpEndTurn(client, msg.roomId, getRoomClients(msg.roomId));
-        return;
-      }
+  if (msg.type === "pvp:endTurn") {
+    handlePvpEndTurn(client, msg.roomId, getRoomClients(msg.roomId));
+    return;
+  }
 
-      if (msg.type === "pvp:advancePhase") {
-        handleAdvancePhaseDebug(msg.roomId, getRoomClients(msg.roomId));
-        return;
-      }
+  if (msg.type === "pvp:basicAction") {
+    handlePvpBasicAction(client, msg.roomId, msg.action, msg.dir, msg.discardCard, getRoomClients(msg.roomId));
+    return;
+  }
+
+  if (msg.type === "pvp:miaTrapAttack") {
+    handlePvpMiaTrapAttack(client, msg.roomId, msg.target, getRoomClients(msg.roomId));
+    return;
+  }
+
+  if (msg.type === "pvp:cpAction") {
+    handlePvpCpAction(client, msg.roomId, msg.actionId, msg.target, msg.dir, getRoomClients(msg.roomId));
+    return;
+  }
+
+  if (msg.type === "pvp:crack") {
+    handlePvpCrack(client, msg.roomId, msg.dir, msg.steps, msg.moveTarget ?? null, getRoomClients(msg.roomId));
+    return;
+  }
+
+  if (msg.type === "pvp:enter") {
+    handlePvpEnter(client, msg.roomId, msg.pos, getRoomClients(msg.roomId));
+    return;
+  }
+
+  if (msg.type === "pvp:react") {
+    handlePvpReact(client, msg.roomId, msg.kind, msg.payload, getRoomClients(msg.roomId));
+    return;
+  }
+
+  if (msg.type === "game:choice") {
+    handleGameChoice(client, msg.roomId, msg.choiceId, msg.value, getRoomClients(msg.roomId));
+    return;
+  }
+
+  if (msg.type === "pvp:advancePhase") {
+    handleAdvancePhaseDebug(msg.roomId, getRoomClients(msg.roomId));
+    return;
+  }
 
       sendError(ws, "Unknown message type");
     });
@@ -152,6 +218,7 @@ export function attachWebSocketServer(httpServer: any) {
         leaveMatchmaking(client);
       }
       cleanupClient(ws);
+      pruneEmptyRooms();
     });
   });
 

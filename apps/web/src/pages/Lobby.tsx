@@ -26,8 +26,8 @@ function modeLabel(mode: Mode) {
   return "경쟁";
 }
 
-// Static image lookup for Rosette-Δ (and future characters if added)
-const CHAR_IMAGES = import.meta.glob("../assets/Character_Rosette_delta/Illust/*", {
+// Static image lookup for character portraits
+const CHAR_IMAGES = import.meta.glob("../assets/Character_*/Illust/*", {
   eager: true,
   as: "url"
 }) as Record<string, string>;
