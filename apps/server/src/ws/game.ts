@@ -1,6 +1,6 @@
 // apps/server/src/ws/game.ts
 import type { AuthedClient } from "./state.js";
-import { rooms, broadcastRoomState, sendError, send } from "./state.js";
+import { rooms, broadcastRoomState, sendError, send, getRoomClients } from "./state.js";
 import { SAMPLE_PLAYER_CARDS } from "../pvp/data.js";
 import { prisma } from "../db/prisma.js";
 
@@ -65,7 +65,8 @@ type PendingChoice = {
     | "lunaSoaringHeightsMove"
     | "lunaThunderstepMove"
     | "miaAuxTrapFlip"
-    | "miaHeelstompExtra";
+    | "miaHeelstompExtra"
+    | "reformSwap";
   data: any;
   defaultValue: any;
   timer?: NodeJS.Timeout;
@@ -756,18 +757,23 @@ function requestChoice(
   type: PendingChoice["type"],
   data: any,
   prompt: string,
-  defaultValue: any
+  defaultValue: any,
+  opts?: { options?: any; timeoutMs?: number }
 ) {
   clearChoice(state);
   const choiceId = `${type}-${Date.now()}-${Math.random()}`;
   const target = roomClients.find((c: any) => c.user.id === targetUserId);
   state.pendingChoice = { id: choiceId, targetUserId, type, data, defaultValue };
   if (target) {
-    send(target.ws, { type: "game:choose", choiceId, prompt, options: { type } });
+    const options = opts?.options ?? { type };
+    send(target.ws, { type: "game:choose", choiceId, prompt, options });
   }
-  state.pendingChoice.timer = setTimeout(() => {
-    applyChoice(state, roomClients, choiceId, defaultValue, null);
-  }, 5000);
+  const timeoutMs = opts?.timeoutMs ?? 5000;
+  if (timeoutMs > 0) {
+    state.pendingChoice.timer = setTimeout(() => {
+      applyChoice(state, roomClients, choiceId, defaultValue, null);
+    }, timeoutMs);
+  }
 }
 
 function applyChoice(state: any, roomClients: any[], choiceId: string, value: any, client: any) {
@@ -841,6 +847,25 @@ function applyChoice(state: any, roomClients: any[], choiceId: string, value: an
     if (target && cardCode) {
       handlePvpPlayCard(target, state.roomId, cardCode, dir ?? p.facing ?? "N", roomClients);
     }
+  } else if (pending.type === "reformSwap") {
+    const discardOptions: string[] = Array.isArray(pending.data?.discardOptions) ? pending.data.discardOptions : [];
+    const enhancedOptions: string[] = Array.isArray(pending.data?.enhancedOptions) ? pending.data.enhancedOptions : [];
+    const discardPick = value?.discard;
+    const enhancedPick = value?.enhanced;
+    if (!discardOptions.includes(discardPick) || !enhancedOptions.includes(enhancedPick)) return;
+    const discardIdx = p.discard.indexOf(discardPick);
+    if (discardIdx >= 0) {
+      p.discard.splice(discardIdx, 1);
+    }
+    if (Array.isArray(p.enhancedDeck)) {
+      p.enhancedDeck = p.enhancedDeck.filter((c: string) => c !== enhancedPick);
+    }
+    p.deck.push(enhancedPick);
+    p.deck.push(...p.discard);
+    p.deck = shuffle(p.deck);
+    p.discard = [];
+    p.cp = (p.cp ?? 0) + 2;
+    p.reformUsedThisRound = true;
   }
   if (state.roomId) {
     broadcastState(state);
@@ -958,6 +983,16 @@ function placeAtEntry(state: any, p: any) {
   collectShards(state, p, p.position);
 }
 
+function allBoardCells(): Vec2[] {
+  const cells: Vec2[] = [];
+  for (let y = 2; y >= -2; y -= 1) {
+    for (let x = -2; x <= 2; x += 1) {
+      cells.push({ x, y });
+    }
+  }
+  return cells;
+}
+
 function availableEntries(state: any, p: any) {
   const ENTRY_POINTS: Array<{ x: number; y: number }> = [
     { x: -2, y: -1 },
@@ -965,9 +1000,7 @@ function availableEntries(state: any, p: any) {
     { x: -1, y: 2 },
     { x: 1, y: -2 }
   ];
-  return ENTRY_POINTS.filter(
-    (ep) => !state.players.some((pl: any) => pl !== p && pl.position && pl.position.x === ep.x && pl.position.y === ep.y)
-  );
+  return ENTRY_POINTS.filter((ep) => !isOccupied(state, p, ep));
 }
 
 function setLegion(state: any, pos: Vec2, type: "head" | "tail", facing: Facing) {
@@ -1054,7 +1087,8 @@ export function handlePvpEnter(client: AuthedClient, roomId: string, pos: Vec2, 
   if (state.currentTurn?.type !== "player" || state.currentTurn.userId !== client.user.id) return;
   if (p.position) return;
   const options = availableEntries(state, p);
-  const allowed = options.some((ep) => ep.x === pos.x && ep.y === pos.y);
+  const fallbackOptions = options.length === 0 ? allBoardCells().filter((cell) => !isOccupied(state, p, cell)) : options;
+  const allowed = fallbackOptions.some((ep) => ep.x === pos.x && ep.y === pos.y);
   if (!allowed) return;
   p.position = wrapPosition(pos);
   p.facing = "N";
@@ -1086,21 +1120,29 @@ function placeIfNeeded(state: any, userId: string) {
   collectShards(state, p, p.position);
 }
 
-function reformIfNeeded(p: any) {
-  if (p.deck.length > 0) return;
-  if (p.discard.length === 0) return;
-  if (p.reformUsedThisRound) return;
+function reformIfNeeded(state: any, p: any): boolean {
+  if (p.deck.length > 0) return true;
+  if (p.discard.length === 0) return false;
+  if (p.reformUsedThisRound) return false;
 
-  // Optional upgrade: swap an enhanced card into the deck, swapping out one discard card into the enhanced pool
   const enhancedPool: string[] = Array.isArray(p.enhancedDeck) ? p.enhancedDeck : [];
   if (enhancedPool.length > 0 && p.discard.length > 0) {
-    const enhancedPick = enhancedPool[0];
-    const swapOut = p.discard.pop();
-    if (swapOut) {
-      p.enhancedDeck = enhancedPool.filter((c) => c !== enhancedPick);
-      p.enhancedDeck.push(swapOut);
-      p.deck.push(enhancedPick);
-    }
+    const pending = state.pendingChoice;
+    if (pending?.type === "reformSwap" && pending.targetUserId === p.userId) return false;
+    const roomClients = state.roomId ? getRoomClients(state.roomId) : [];
+    const discardOptions = p.discard.slice();
+    const enhancedOptions = enhancedPool.slice();
+    requestChoice(
+      state,
+      roomClients,
+      p.userId,
+      "reformSwap",
+      { discardOptions, enhancedOptions },
+      "덱 재구성: 버린 카드 1장을 선택해 제거하고, 확장 덱 카드 1장을 추가하세요.",
+      null,
+      { options: { type: "reformSwap", discardOptions, enhancedOptions }, timeoutMs: 0 }
+    );
+    return false;
   }
 
   p.deck.push(...p.discard);
@@ -1108,17 +1150,20 @@ function reformIfNeeded(p: any) {
   p.discard = [];
   p.cp = (p.cp ?? 0) + 2; // Gain 2 CP when reforming (once per round)
   p.reformUsedThisRound = true;
+  return true;
 }
 
-function drawCard(p: any) {
-  if (p.deck.length === 0) reformIfNeeded(p);
-  if (p.deck.length === 0) return;
+function drawCard(state: any, p: any): boolean {
+  if (p.deck.length === 0) reformIfNeeded(state, p);
+  if (p.deck.length === 0) return false;
   p.hand.push(p.deck.shift());
+  return true;
 }
 
-function drawTo3(p: any) {
+function drawTo3(state: any, p: any) {
   while (p.hand.length < 3) {
-    drawCard(p);
+    const drew = drawCard(state, p);
+    if (!drew) break;
     if (p.deck.length === 0 && p.discard.length === 0) break;
   }
 }
@@ -1230,6 +1275,14 @@ function executeBossActions(
       }
       const delta = rotateOffset(action.offset, facing);
       pos = wrapPosition({ x: pos.x + delta.x, y: pos.y + delta.y });
+      const hitPlayers = state.players.filter(
+        (pl: any) => pl.position && pl.position.x === pos.x && pl.position.y === pos.y
+      );
+      if (hitPlayers.length > 0) {
+        for (const pl of hitPlayers) {
+          applyDamageToPlayer(state, pl, damage);
+        }
+      }
     } else if (action.type === "turn") {
       facing = turnFacing(facing, action.dir);
     } else if (action.type === "summon") {
@@ -1239,6 +1292,14 @@ function executeBossActions(
           const delta = rotateOffset(off, facing);
           const summonPos = wrapPosition({ x: pos.x + delta.x, y: pos.y + delta.y });
           setLegion(state, summonPos, kind, facing);
+          const hitPlayers = state.players.filter(
+            (pl: any) => pl.position && pl.position.x === summonPos.x && pl.position.y === summonPos.y
+          );
+          if (hitPlayers.length > 0) {
+            for (const pl of hitPlayers) {
+              applyDamageToPlayer(state, pl, damage);
+            }
+          }
         }
       }
     } else if (action.type === "special" && action.kind === "homecoming") {
@@ -1643,7 +1704,7 @@ function progress(state: any) {
 
   if (state.phase === "draw") {
     for (const p of state.players) {
-      drawTo3(p);
+      drawTo3(state, p);
       p.actedThisRound = false;
     }
     state.phase = "draft";
@@ -1680,6 +1741,10 @@ function computeFinalScores(state: any) {
 
 function buildPayload(state: any) {
   const payload: any = { ...state };
+  if (payload.pendingChoice) {
+    const { timer: _timer, ...rest } = payload.pendingChoice;
+    payload.pendingChoice = rest;
+  }
   if (state.phase === "scoring" && state.finished) {
     payload.finalScores = computeFinalScores(state);
   }
@@ -1795,11 +1860,11 @@ export function handlePvpChooseSlot(
 
   // Slot bonuses
   if (slot === 1) {
-    drawCard(p);
+    drawCard(state, p);
   } else if (slot === 2) {
     p.mp += 1;
   } else if (slot === 3) {
-    drawCard(p);
+    drawCard(state, p);
     // Require an explicit return card when possible; fallback to the last card in hand
     if (p.hand.length > 0) {
       const idx =
@@ -2024,7 +2089,7 @@ export function handlePvpPlayCard(
     }
 
     if (code === "HacKClaD_Mia_Delta_Cards_Stealth" && backAttack && !p.miaStealthUsedRound) {
-      drawCard(p);
+      drawCard(state, p);
       p.miaStealthUsedRound = true;
     }
     if (code === "HacKClaD_Mia_Delta_Cards_Mawashigeri" && backAttack) {
@@ -2247,7 +2312,7 @@ export function handlePvpPlayCard(
         p.hand.push(picked);
       }
     } else {
-      drawCard(p);
+      drawCard(state, p);
     }
   }
 
@@ -2439,7 +2504,7 @@ export function handlePvpCpAction(
   } else if (def.effect === "mp") {
     p.mp = (p.mp ?? 0) + 1;
   } else if (def.effect === "draw") {
-    drawCard(p);
+    drawCard(state, p);
   }
 
   broadcastState(state);
@@ -2582,7 +2647,7 @@ export function handlePvpReact(
           p.hand.push(picked);
         }
       } else {
-        drawCard(p);
+        drawCard(state, p);
       }
     }
 

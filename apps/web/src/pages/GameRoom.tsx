@@ -1,6 +1,6 @@
 ﻿// apps/web/src/pages/GameRoom.tsx
-import { useEffect, useMemo, useState } from "react";
-import type { ReactElement } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties, ReactElement } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { GameWS } from "../api/ws";
 
@@ -21,6 +21,18 @@ type ActionQueueEntry = { type: "player"; userId: string } | { type: "boss"; car
 function isPlayerStep(step: ActionQueueEntry): step is { type: "player"; userId: string } {
   return step.type === "player";
 }
+
+function svgData(svg: string) {
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+const SCRATCH_SVG = svgData(
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><g fill="none" stroke="#ff4d4d" stroke-width="10" stroke-linecap="round"><path d="M18 28 L102 12"/><path d="M14 70 L98 44"/><path d="M30 106 L110 74"/></g></svg>`
+);
+
+const SHIELD_SVG = svgData(
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 140"><path fill="#9ed2ff" stroke="#e6f4ff" stroke-width="6" d="M60 6 L108 24 V62c0 34-22 58-48 72C34 120 12 96 12 62V24Z"/></svg>`
+);
 
 const CLAD_CARDS: Record<string, CladCard> = {
   HacKClaD_Clad_Hydra_Backslam: {
@@ -222,12 +234,15 @@ function findCharImage(path?: string | null, code?: string | null) {
   return "";
 }
 
-const SPAWN_POINTS: { x: number; y: number; label: string }[] = [
-  { x: -2, y: -1, label: "(-2, -1)" },
-  { x: 2, y: 1, label: "(2, 1)" },
-  { x: -1, y: 2, label: "(-1, 2)" },
-  { x: 1, y: -2, label: "(1, -2)" },
-];
+function allBoardCells(): Vec2[] {
+  const cells: Vec2[] = [];
+  for (let y = 2; y >= -2; y -= 1) {
+    for (let x = -2; x <= 2; x += 1) {
+      cells.push({ x, y });
+    }
+  }
+  return cells;
+}
 
 function entryPoints(state: GameState | null, meId: string) {
   const entries = [
@@ -236,9 +251,16 @@ function entryPoints(state: GameState | null, meId: string) {
     { x: -1, y: 2 },
     { x: 1, y: -2 },
   ];
-  return entries.filter(
-    (ep) => !(state?.players ?? []).some((p) => p.userId !== meId && p.position && p.position.x === ep.x && p.position.y === ep.y)
-  );
+  const isBlocked = (ep: Vec2) => {
+    if (state?.boss?.position && state.boss.position.x === ep.x && state.boss.position.y === ep.y) return true;
+    if ((state?.legions ?? []).some((l) => l.position.x === ep.x && l.position.y === ep.y)) return true;
+    return (state?.players ?? []).some(
+      (p) => p.userId !== meId && p.position && p.position.x === ep.x && p.position.y === ep.y
+    );
+  };
+  const availableEntries = entries.filter((ep) => !isBlocked(ep));
+  if (availableEntries.length > 0) return availableEntries;
+  return allBoardCells().filter((cell) => !isBlocked(cell));
 }
 
 function cardImage(code: string) {
@@ -1097,6 +1119,17 @@ type GameState = {
   finalScores?: Array<{ userId: string; nickname: string; finalVp: number }>;
 };
 
+type FxKind = "hit" | "shield" | "mp";
+type CellFx = { id: string; kind: FxKind };
+type MoveFx = {
+  id: string;
+  entityId: string;
+  img?: string | null;
+  label?: string;
+  from: { x: number; y: number };
+  to: { x: number; y: number };
+};
+
 export default function GameRoom() {
   const nav = useNavigate();
   const { roomId } = useParams();
@@ -1122,7 +1155,7 @@ export default function GameRoom() {
   const [showDiscardPreview, setShowDiscardPreview] = useState(false);
   const [showDeckDetail, setShowDeckDetail] = useState(false);
   const [showDiscardDetail, setShowDiscardDetail] = useState(false);
-  const [pendingChoice, setPendingChoice] = useState<{ choiceId: string; prompt: string } | null>(null);
+  const [pendingChoice, setPendingChoice] = useState<{ choiceId: string; prompt: string; options?: any } | null>(null);
   const [basicActionModal, setBasicActionModal] = useState<{
     action: "mp" | "dmgReduce";
     discard?: string | null;
@@ -1139,6 +1172,14 @@ export default function GameRoom() {
   const [cpActionModal, setCpActionModal] = useState<{ actionId: "guard" | "move" | "mp" | "draw"; dir?: Facing | null } | null>(null);
   const [attackOptions, setAttackOptions] = useState<Array<{ dir: Facing; targets: Vec2[] }>>([]);
   const [attackSelect, setAttackSelect] = useState<{ cardCode: string; options: Array<{ dir: Facing; targets: Vec2[] }> } | null>(null);
+  const [reformChoice, setReformChoice] = useState<{ discard?: string | null; enhanced?: string | null }>({});
+  const [cellFx, setCellFx] = useState<Record<string, CellFx[]>>({});
+  const [moveFx, setMoveFx] = useState<MoveFx[]>([]);
+  const [movingIds, setMovingIds] = useState<Record<string, true>>({});
+  const [crackFx, setCrackFx] = useState<{ id: string; img?: string | null; label?: string } | null>(null);
+  const boardRef = useRef<HTMLDivElement | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const prevStateRef = useRef<GameState | null>(null);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -1170,7 +1211,7 @@ export default function GameRoom() {
       }
 
       if (msg.type === "game:choose") {
-        setPendingChoice({ choiceId: msg.choiceId, prompt: msg.prompt ?? "선택하세요" });
+        setPendingChoice({ choiceId: msg.choiceId, prompt: msg.prompt ?? "선택하세요", options: msg.options });
         return;
       }
 
@@ -1189,6 +1230,166 @@ export default function GameRoom() {
       // ws.close();
     };
   }, [nav, roomId, ws]);
+
+  function ensureAudioContext() {
+    if (typeof window === "undefined") return null;
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return null;
+    if (!audioCtxRef.current) {
+      audioCtxRef.current = new AudioCtx();
+    }
+    if (audioCtxRef.current.state === "suspended") {
+      void audioCtxRef.current.resume();
+    }
+    return audioCtxRef.current;
+  }
+
+  function playTone(
+    ctx: AudioContext,
+    opts: { type: OscillatorType; startTime?: number; freqStart: number; freqEnd?: number; duration: number; gain: number }
+  ) {
+    const startTime = opts.startTime ?? ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gainNode = ctx.createGain();
+    osc.type = opts.type;
+    osc.frequency.setValueAtTime(opts.freqStart, startTime);
+    if (opts.freqEnd) {
+      osc.frequency.exponentialRampToValueAtTime(opts.freqEnd, startTime + opts.duration);
+    }
+    gainNode.gain.setValueAtTime(0.0001, startTime);
+    gainNode.gain.exponentialRampToValueAtTime(opts.gain, startTime + 0.02);
+    gainNode.gain.exponentialRampToValueAtTime(0.0001, startTime + opts.duration);
+    osc.connect(gainNode).connect(ctx.destination);
+    osc.start(startTime);
+    osc.stop(startTime + opts.duration);
+  }
+
+  function playNoise(
+    ctx: AudioContext,
+    opts: {
+      startTime?: number;
+      duration: number;
+      gain: number;
+      filterType: BiquadFilterType;
+      freqStart: number;
+      freqEnd?: number;
+      q?: number;
+    }
+  ) {
+    const startTime = opts.startTime ?? ctx.currentTime;
+    const length = Math.max(1, Math.floor(ctx.sampleRate * opts.duration));
+    const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < length; i += 1) {
+      data[i] = Math.random() * 2 - 1;
+    }
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    const filter = ctx.createBiquadFilter();
+    filter.type = opts.filterType;
+    filter.frequency.setValueAtTime(opts.freqStart, startTime);
+    if (opts.freqEnd) {
+      filter.frequency.exponentialRampToValueAtTime(opts.freqEnd, startTime + opts.duration);
+    }
+    filter.Q.value = opts.q ?? 1;
+    const gainNode = ctx.createGain();
+    gainNode.gain.setValueAtTime(0.0001, startTime);
+    gainNode.gain.exponentialRampToValueAtTime(opts.gain, startTime + 0.02);
+    gainNode.gain.exponentialRampToValueAtTime(0.0001, startTime + opts.duration);
+    source.connect(filter).connect(gainNode).connect(ctx.destination);
+    source.start(startTime);
+    source.stop(startTime + opts.duration);
+  }
+
+  function playSfx(kind: "move" | "hit" | "shield" | "mp" | "crack") {
+    const ctx = ensureAudioContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    if (kind === "move") {
+      playTone(ctx, { type: "triangle", freqStart: 260, freqEnd: 180, duration: 0.12, gain: 0.08 });
+      playTone(ctx, { type: "triangle", startTime: now + 0.12, freqStart: 160, freqEnd: 140, duration: 0.08, gain: 0.07 });
+      return;
+    }
+    if (kind === "hit") {
+      playNoise(ctx, { duration: 0.16, gain: 0.14, filterType: "lowpass", freqStart: 900, q: 0.8 });
+      return;
+    }
+    if (kind === "shield") {
+      playNoise(ctx, { duration: 0.18, gain: 0.1, filterType: "bandpass", freqStart: 1400, q: 2.4 });
+      playTone(ctx, { type: "square", startTime: now + 0.03, freqStart: 620, freqEnd: 320, duration: 0.16, gain: 0.06 });
+      return;
+    }
+    if (kind === "mp") {
+      playTone(ctx, { type: "sine", freqStart: 420, freqEnd: 700, duration: 0.2, gain: 0.07 });
+      return;
+    }
+    playNoise(ctx, { duration: 0.36, gain: 0.09, filterType: "bandpass", freqStart: 1200, freqEnd: 520, q: 0.7 });
+    playTone(ctx, { type: "sawtooth", startTime: now + 0.08, freqStart: 200, freqEnd: 120, duration: 0.22, gain: 0.05 });
+  }
+
+  function addCellFx(kind: FxKind, cell: Vec2) {
+    const wrapped = wrapPosition(cell);
+    const key = shardKey(wrapped);
+    const id = `${kind}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    setCellFx((prev) => {
+      const next = { ...prev };
+      next[key] = [...(prev[key] ?? []), { id, kind }];
+      return next;
+    });
+    playSfx(kind === "shield" ? "shield" : kind === "mp" ? "mp" : "hit");
+    const duration = kind === "hit" ? 650 : kind === "shield" ? 720 : 760;
+    window.setTimeout(() => {
+      setCellFx((prev) => {
+        const next = { ...prev };
+        const list = (next[key] ?? []).filter((fx) => fx.id !== id);
+        if (list.length > 0) {
+          next[key] = list;
+        } else {
+          delete next[key];
+        }
+        return next;
+      });
+    }, duration);
+  }
+
+  function getCellCenter(cell: Vec2) {
+    const board = boardRef.current;
+    if (!board) return null;
+    const target = board.querySelector(`[data-cell="${cell.x},${cell.y}"]`) as HTMLElement | null;
+    if (!target) return null;
+    const boardRect = board.getBoundingClientRect();
+    const rect = target.getBoundingClientRect();
+    return { x: rect.left - boardRect.left + rect.width / 2, y: rect.top - boardRect.top + rect.height / 2 };
+  }
+
+  function triggerMoveFx(entityId: string, fromCell: Vec2, toCell: Vec2, img?: string | null, label?: string) {
+    const from = getCellCenter(fromCell);
+    const to = getCellCenter(toCell);
+    if (!from || !to) return;
+    const id = `move-${entityId}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    setMoveFx((prev) => [...prev, { id, entityId, img, label, from, to }]);
+    setMovingIds((prev) => ({ ...prev, [entityId]: true }));
+    playSfx("move");
+    window.setTimeout(() => {
+      setMoveFx((prev) => prev.filter((fx) => fx.id !== id));
+      setMovingIds((prev) => {
+        const next = { ...prev };
+        delete next[entityId];
+        return next;
+      });
+    }, 480);
+  }
+
+  function triggerCrackFx(player: { userId: string; nickname?: string | null; characterCode?: string | null; characterImageUrl?: string | null }) {
+    const img = findCharImage(player.characterImageUrl, player.characterCode);
+    const label = (player.nickname ?? player.userId ?? "?").slice(0, 1).toUpperCase();
+    const id = `crack-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    setCrackFx({ id, img, label });
+    playSfx("crack");
+    window.setTimeout(() => {
+      setCrackFx((prev) => (prev?.id === id ? null : prev));
+    }, 900);
+  }
 
   const canAct = state?.phase === "action" && !state?.finished;
   const myTurn = canAct && state?.currentTurn?.type === "player" && state.currentTurn.userId === meId;
@@ -1233,6 +1434,49 @@ export default function GameRoom() {
   const cladRotationDeg = facingToDeg(cladFacing);
   const cladNorthOffset = northBadgeOffset(cladFacing);
   const isFlare = me?.characterCode === "CH_FLARE_DELTA";
+  useEffect(() => {
+    if (!state) return;
+    const prev = prevStateRef.current;
+    prevStateRef.current = state;
+    if (!prev) return;
+
+    const prevPlayers = new Map(prev.players.map((p) => [p.userId, p]));
+    state.players.forEach((p) => {
+      const prevP = prevPlayers.get(p.userId);
+      if (p.position && prevP?.position) {
+        const moved =
+          p.position.x !== prevP.position.x ||
+          p.position.y !== prevP.position.y;
+        if (moved) {
+          triggerMoveFx(
+            `player:${p.userId}`,
+            wrapPosition(prevP.position),
+            wrapPosition(p.position),
+            findCharImage(p.characterImageUrl, p.characterCode),
+            (p.nickname ?? p.userId ?? "?").slice(0, 1).toUpperCase()
+          );
+        }
+      }
+      if (p.position && prevP && p.injury > prevP.injury) {
+        addCellFx("hit", p.position);
+      }
+      if (p.position && prevP && p.mp > prevP.mp) {
+        addCellFx("mp", p.position);
+      }
+    });
+
+    if (prev.boss.position && state.boss.position) {
+      const moved =
+        prev.boss.position.x !== state.boss.position.x ||
+        prev.boss.position.y !== state.boss.position.y;
+      if (moved) {
+        triggerMoveFx("boss", wrapPosition(prev.boss.position), wrapPosition(state.boss.position), CLAD_ICON, "B");
+      }
+    }
+    if (state.boss.position && prev.boss.hp > state.boss.hp) {
+      addCellFx("hit", state.boss.position);
+    }
+  }, [state]);
   const isCellOccupied = (cell: Vec2) => {
     const wrapped = wrapPosition(cell);
     if (wrapped.x === cladPosition.x && wrapped.y === cladPosition.y) return true;
@@ -1278,6 +1522,12 @@ export default function GameRoom() {
       setFrontHandCard(null);
     }
   }, [inspectCard]);
+
+  useEffect(() => {
+    if (!pendingChoice || pendingChoice.options?.type !== "reformSwap") {
+      setReformChoice({});
+    }
+  }, [pendingChoice]);
 
   function canPlayCard(code: string) {
     const detail = playerCardDetail(code);
@@ -1339,13 +1589,15 @@ export default function GameRoom() {
     const actionTurn = myTurn && !state?.reaction;
 
     if (actionTurn && !opts?.skipMovePrompt && isMoveSupportCard(detail) && me?.position) {
-      const targets = computeMoveTargets(me.position);
+      const targets = computeMoveTargets(me.position).filter((t) => !isCellOccupied(t.pos));
       if (targets.length > 0) {
         setMoveCardPrompt({ cardCode: code, targets });
         setInspectCard(null);
         setFrontHandCard(code);
         return;
       }
+      setLog((prev) => `이동할 수 있는 빈 칸이 없습니다.\n${prev ?? ""}`);
+      return;
     }
 
     if (reactionTurn) {
@@ -1406,7 +1658,7 @@ export default function GameRoom() {
       setLog((prev) => `위치가 없어 크랙 스킬을 사용할 수 없습니다.\n${prev ?? ""}`);
       return;
     }
-    const targets = computeMoveTargets(me.position);
+    const targets = computeMoveTargets(me.position).filter((t) => !isCellOccupied(t.pos));
     setCrackMovePrompt({ targets });
   }
 
@@ -1414,6 +1666,7 @@ export default function GameRoom() {
     if (!roomId || !me || !me.position) return;
     const dir = moveTarget ? directionForTarget(me.position as Vec2, moveTarget) ?? me.facing ?? "N" : me.facing ?? "N";
     const payload = { dir, steps: moveTarget ? 1 : 0, moveTarget };
+    triggerCrackFx(me);
     if (reactionTurn) {
       ws.send({ type: "pvp:react", roomId, kind: "crack", payload });
     } else {
@@ -1438,7 +1691,7 @@ export default function GameRoom() {
   setMoveFlow({ stage: "selectCard", selectedCard: null, targets: [] });
 }
 
-function confirmTurnSlotSelection() {
+  function confirmTurnSlotSelection() {
   if (!pendingTurnSlotCard || !selectedTurnSlotCard) return;
   const payloadSpawn = pendingTurnSlotCard.spawn ?? null;
     const slot = pendingTurnSlotCard.slot;
@@ -1452,7 +1705,7 @@ function confirmTurnSlotSelection() {
     }
     if (slot === 4) {
       const origin = me?.position ?? payloadSpawn ?? null;
-      const targets = origin ? computeMoveTargets(origin) : [];
+      const targets = origin ? computeMoveTargets(origin).filter((t) => !isCellOccupied(t.pos)) : [];
       if (targets.length === 0) {
         chooseSlot(slot, selectedTurnSlotCard, payloadSpawn ?? undefined, null, null);
         return;
@@ -1465,7 +1718,7 @@ function confirmTurnSlotSelection() {
 
   function confirmMoveDiscard() {
     if (moveFlow.stage !== "selectCard" || !moveFlow.selectedCard) return;
-    const targets = computeMoveTargets(me?.position);
+    const targets = computeMoveTargets(me?.position).filter((t) => !isCellOccupied(t.pos));
     if (targets.length === 0) {
       setLog((prev) => `이동할 수 있는 칸이 없습니다.\n${prev ?? ""}`);
       resetMoveFlow();
@@ -1477,6 +1730,10 @@ function confirmTurnSlotSelection() {
   function handleMoveTargetClick(cell: Vec2) {
     if (moveFlow.stage !== "chooseTile" || !moveFlow.selectedCard) return;
     if (!roomId || !me?.position) return;
+    if (isCellOccupied(cell)) {
+      setLog((prev) => `해당 칸은 이동할 수 없습니다.\n${prev ?? ""}`);
+      return;
+    }
     const dir = directionForTarget(me.position, cell);
     if (!dir) return;
     sendBasicAction("move", moveFlow.selectedCard, dir);
@@ -1505,6 +1762,9 @@ function confirmTurnSlotSelection() {
       ws.send({ type: "pvp:react", roomId, kind: "basicAction", payload });
     } else {
       ws.send({ type: "pvp:basicAction", roomId, ...payload });
+    }
+    if (action === "dmgReduce" && me?.position) {
+      addCellFx("shield", me.position);
     }
   }
 
@@ -1554,6 +1814,9 @@ function confirmTurnSlotSelection() {
       ws.send({ type: "pvp:react", roomId, kind: "cpAction", payload: { actionId, dir } });
     } else {
       ws.send({ type: "pvp:cpAction", roomId, actionId, dir });
+    }
+    if (actionId === "guard" && me?.position) {
+      addCellFx("shield", me.position);
     }
   }
 
@@ -1808,6 +2071,7 @@ function confirmTurnSlotSelection() {
           <main className="relative flex h-full min-h-0 flex-col gap-3 overflow-hidden">
             <div className="relative flex-1 min-h-0 mx-auto w-full max-w-[600px]">
               <div
+                ref={boardRef}
                 className="relative mx-auto max-w-[500px] rounded-[30px] border border-white/15 px-5 py-5 shadow-[0_0_40px_rgba(0,0,0,0.35)] overflow-hidden"
                 style={{ backgroundImage: `url(${BOARD_BG})`, backgroundSize: "cover", backgroundPosition: "center" }}
               >
@@ -1828,6 +2092,11 @@ function confirmTurnSlotSelection() {
                         (substitutePrompt.targets ?? []).some((t) => wrapPosition(t).x === cell.x && wrapPosition(t).y === cell.y);
                       const entryTarget =
                         myTurn && !me?.position && entryPoints(state, meId).some((t) => t.x === cell.x && t.y === cell.y);
+                      const draftSpawnTarget =
+                        state?.phase === "draft" &&
+                        !me?.position &&
+                        showSpawnPicker &&
+                        entryPoints(state, meId).some((t) => t.x === cell.x && t.y === cell.y);
                       const slot4Targets = slot4MovePrompt ? computeMoveTargets(slot4MovePrompt.spawn ?? me?.position ?? undefined) : [];
                       const slot4Target =
                         slot4MovePrompt && slot4Targets.some((t) => t.pos.x === cell.x && t.pos.y === cell.y);
@@ -1844,15 +2113,30 @@ function confirmTurnSlotSelection() {
                           const wrapped = wrapPosition(p.position as Vec2);
                           return wrapped.x === cell.x && wrapped.y === cell.y;
                         });
+                      const fxList = cellFx[shardKey(cell)] ?? [];
                       return (
                         <div
                           key={idx}
+                          data-cell={`${cell.x},${cell.y}`}
                           className={`relative aspect-square rounded-[12px] border border-white/20 bg-black/25 backdrop-blur-[1px] shadow-[inset_0_0_12px_rgba(0,0,0,0.35)] flex items-center justify-center overflow-hidden ${
-                            moveTarget || slot4Target || crackTarget || moveCardTarget || attackTarget || trapTarget || substituteTarget || entryTarget
+                            moveTarget ||
+                            slot4Target ||
+                            crackTarget ||
+                            moveCardTarget ||
+                            attackTarget ||
+                            trapTarget ||
+                            substituteTarget ||
+                            entryTarget ||
+                            draftSpawnTarget
                               ? "cursor-pointer ring-2 ring-amber-300/70"
                               : ""
                           }`}
                           onClick={() => {
+                            if (draftSpawnTarget && showSpawnPicker) {
+                              setPendingTurnSlotCard({ slot: showSpawnPicker.slot as 1 | 2 | 3 | 4, spawn: cell });
+                              setShowSpawnPicker(null);
+                              return;
+                            }
                             if (substitutePrompt) {
                               if (substituteTarget && roomId) {
                                 ws.send({
@@ -1908,7 +2192,14 @@ function confirmTurnSlotSelection() {
                             }
                           }}
                         >
-                          {(moveTarget || slot4Target || crackTarget || attackTarget || trapTarget || substituteTarget || entryTarget) && (
+                          {(moveTarget ||
+                            slot4Target ||
+                            crackTarget ||
+                            attackTarget ||
+                            trapTarget ||
+                            substituteTarget ||
+                            entryTarget ||
+                            draftSpawnTarget) && (
                             <div className="absolute inset-0 bg-amber-300/15 backdrop-blur-[1px] pointer-events-none" />
                           )}
                           {shardAmt > 0 && (
@@ -1950,11 +2241,12 @@ function confirmTurnSlotSelection() {
                             const offsetY = (i - (playersHere.length - 1) / 2) * 24;
                             const nicknameInitial = (p.nickname ?? p.userId ?? "?").slice(0, 1).toUpperCase();
                             const isMe = p.userId === meId;
+                            const isMoving = !!movingIds[`player:${p.userId}`];
                             return (
                               <div
                                 key={`player-${p.userId}-${i}`}
                                 className="pointer-events-none absolute left-1/2 top-1/2"
-                                style={{ transform: `translate(-50%, -50%) translateY(${offsetY}px)` }}
+                                style={{ opacity: isMoving ? 0 : 1, transform: `translate(-50%, -50%) translateY(${offsetY}px)` }}
                               >
                                 <div
                                   className={`relative h-12 w-12 rounded-full border bg-slate-900/80 overflow-hidden shadow-[0_10px_20px_rgba(0,0,0,0.4)] ${
@@ -1978,7 +2270,10 @@ function confirmTurnSlotSelection() {
                             );
                           })}
                           {isCladHere && (
-                            <div className="pointer-events-none absolute inset-[14%] rounded-[12px] border border-amber-500/60 bg-amber-200/60 flex items-center justify-center shadow-[0_10px_24px_rgba(0,0,0,0.35)]">
+                            <div
+                              className="pointer-events-none absolute inset-[14%] rounded-[12px] border border-amber-500/60 bg-amber-200/60 flex items-center justify-center shadow-[0_10px_24px_rgba(0,0,0,0.35)]"
+                              style={{ opacity: movingIds["boss"] ? 0 : 1 }}
+                            >
                               {CLAD_ICON ? (
                                 <img
                                   src={CLAD_ICON}
@@ -2001,9 +2296,49 @@ function confirmTurnSlotSelection() {
                               )}
                             </div>
                           )}
+                          {fxList.map((fx) => {
+                            if (fx.kind === "hit") {
+                              return <img key={fx.id} src={SCRATCH_SVG} alt="" className="fx-hit" />;
+                            }
+                            if (fx.kind === "shield") {
+                              return (
+                                <div key={fx.id} className="fx-shield">
+                                  <img src={SHIELD_SVG} alt="" className="fx-shield-img" />
+                                  <span className="fx-shield-text">-1</span>
+                                </div>
+                              );
+                            }
+                            return (
+                              <div key={fx.id} className="fx-mp">
+                                +1 MP
+                              </div>
+                            );
+                          })}
                         </div>
                     );
                   })}
+                </div>
+                <div className="pointer-events-none absolute inset-0">
+                  {moveFx.map((fx) => (
+                    <div
+                      key={fx.id}
+                      className={`fx-move-sprite ${fx.entityId === "boss" ? "fx-move-boss" : ""}`}
+                      style={
+                        {
+                          left: fx.from.x,
+                          top: fx.from.y,
+                          "--dx": `${fx.to.x - fx.from.x}px`,
+                          "--dy": `${fx.to.y - fx.from.y}px`,
+                        } as CSSProperties
+                      }
+                    >
+                      {fx.img ? (
+                        <img src={fx.img} alt="" className="fx-move-img" />
+                      ) : (
+                        <div className="fx-move-initial">{fx.label ?? "?"}</div>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
@@ -2562,35 +2897,18 @@ function confirmTurnSlotSelection() {
       )}
 
             {showSpawnPicker && (
-              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4">
-                <div className="w-full max-w-[420px] rounded-2xl border border-white/15 bg-slate-900/95 p-4 shadow-2xl space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm font-semibold text-slate-100">스폰 위치 선택</div>
-              <button
-                className="rounded-lg border border-white/10 px-2 py-1 text-xs hover:bg-white/10"
-                onClick={() => setShowSpawnPicker(null)}
-              >
-                닫기
-              </button>
-            </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    {SPAWN_POINTS.map((pt) => (
-                      <button
-                        key={`${pt.x},${pt.y}`}
-                        className="rounded-xl border border-white/12 bg-slate-800/80 px-3 py-2 text-left text-sm hover:border-amber-300/50"
-                        onClick={() => {
-                          setPendingTurnSlotCard({ slot: showSpawnPicker.slot as 1 | 2 | 3 | 4, spawn: { x: pt.x, y: pt.y } });
-                          setShowTurnCardPicker(null);
-                          setShowSpawnPicker(null);
-                        }}
-                      >
-                        {pt.label}
-                      </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+              <div className="fixed left-1/2 top-20 z-[360] -translate-x-1/2">
+                <div className="inline-flex items-center gap-3 rounded-xl border border-amber-300/40 bg-slate-900/80 px-4 py-2 text-sm text-amber-50 shadow-[0_10px_30px_rgba(0,0,0,0.35)]">
+                  <div className="font-semibold">스폰 위치를 보드에서 선택하세요.</div>
+                  <button
+                    className="rounded-lg border border-white/20 bg-white/10 px-3 py-1 text-sm text-slate-100 hover:bg-white/15"
+                    onClick={() => setShowSpawnPicker(null)}
+                  >
+                    취소
+                  </button>
+                </div>
+              </div>
+            )}
 
       {/* turn card picker modal removed in favor of 직접 손패 선택 */}
 
@@ -2817,7 +3135,81 @@ function confirmTurnSlotSelection() {
         </div>
       )}
 
-      {pendingChoice && (
+      {crackFx && (
+        <div className="fx-crack">
+          <div className="fx-crack-overlay" />
+          <div className="fx-crack-wrap">
+            {crackFx.img ? (
+              <img src={crackFx.img} alt="" className="fx-crack-illust" />
+            ) : (
+              <div className="fx-crack-fallback">{crackFx.label ?? "?"}</div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {pendingChoice && pendingChoice.options?.type === "reformSwap" ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4">
+          <div className="w-full max-w-[720px] rounded-2xl border border-amber-200/30 bg-slate-900/95 p-4 shadow-2xl space-y-4">
+            <div className="text-sm font-semibold text-amber-100">덱 재구성</div>
+            <div className="text-sm text-slate-100 whitespace-pre-line">{pendingChoice.prompt}</div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <div className="text-[12px] text-slate-300">버릴 카드 선택</div>
+                <div className="grid gap-2">
+                  {(pendingChoice.options?.discardOptions ?? []).map((code: string) => {
+                    const selected = reformChoice.discard === code;
+                    return (
+                      <button
+                        key={`discard-${code}`}
+                        className={`w-full rounded-xl border px-3 py-2 text-left text-sm ${
+                          selected ? "border-amber-300/70 bg-amber-500/15" : "border-white/10 bg-white/5"
+                        }`}
+                        onClick={() => setReformChoice((prev) => ({ ...prev, discard: code }))}
+                      >
+                        <div className="font-semibold text-slate-100">{playerCardDetail(code)?.name ?? code}</div>
+                        <div className="text-[11px] text-slate-400">{code}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <div className="text-[12px] text-slate-300">추가할 확장 카드 선택</div>
+                <div className="grid gap-2">
+                  {(pendingChoice.options?.enhancedOptions ?? []).map((code: string) => {
+                    const selected = reformChoice.enhanced === code;
+                    return (
+                      <button
+                        key={`enhanced-${code}`}
+                        className={`w-full rounded-xl border px-3 py-2 text-left text-sm ${
+                          selected ? "border-cyan-300/70 bg-cyan-500/15" : "border-white/10 bg-white/5"
+                        }`}
+                        onClick={() => setReformChoice((prev) => ({ ...prev, enhanced: code }))}
+                      >
+                        <div className="font-semibold text-slate-100">{playerCardDetail(code)?.name ?? code}</div>
+                        <div className="text-[11px] text-slate-400">{code}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+            <button
+              className="w-full rounded-xl border border-amber-300/60 bg-amber-500/20 px-3 py-2 text-sm font-semibold text-amber-100 hover:bg-amber-500/30 disabled:opacity-50"
+              onClick={() =>
+                sendChoice(pendingChoice.choiceId, {
+                  discard: reformChoice.discard,
+                  enhanced: reformChoice.enhanced,
+                })
+              }
+              disabled={!reformChoice.discard || !reformChoice.enhanced}
+            >
+              교체하고 재구성
+            </button>
+          </div>
+        </div>
+      ) : pendingChoice ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4">
           <div className="w-full max-w-[420px] rounded-2xl border border-amber-200/30 bg-slate-900/95 p-4 shadow-2xl space-y-3">
             <div className="text-sm font-semibold text-amber-100">선택 요청</div>
@@ -2838,7 +3230,7 @@ function confirmTurnSlotSelection() {
             </div>
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
