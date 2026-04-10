@@ -1,4 +1,4 @@
-const API = import.meta.env.VITE_API_BASE_URL as string;
+const API = "https://server-damp-rain-8991.fly.dev"
 
 export async function httpPost<T>(path: string, body: any, token?: string): Promise<T> {
   const res = await fetch(`${API}${path}`, {

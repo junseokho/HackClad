@@ -23,6 +23,10 @@ primary_region = 'sin'
   min_machines_running = 0
   processes = ['app']
 
+[env]
+  DATABASE_URL = "file:///data/prod.db"
+  CORS_ORIGIN = "https://web-red-brook-9212.fly.dev"
+
 [[vm]]
   memory = '1gb'
   cpu_kind = 'shared'

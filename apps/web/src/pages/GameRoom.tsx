@@ -2092,8 +2092,7 @@ export default function GameRoom() {
                         (substitutePrompt.targets ?? []).some((t) => wrapPosition(t).x === cell.x && wrapPosition(t).y === cell.y);
                       const entryTarget =
                         myTurn && !me?.position && entryPoints(state, meId).some((t) => t.x === cell.x && t.y === cell.y);
-                      const draftSpawnTarget =
-                        state?.phase === "draft" &&
+                      const spawnPickerTarget =
                         !me?.position &&
                         showSpawnPicker &&
                         entryPoints(state, meId).some((t) => t.x === cell.x && t.y === cell.y);
@@ -2127,12 +2126,12 @@ export default function GameRoom() {
                             trapTarget ||
                             substituteTarget ||
                             entryTarget ||
-                            draftSpawnTarget
+                            spawnPickerTarget
                               ? "cursor-pointer ring-2 ring-amber-300/70"
                               : ""
                           }`}
                           onClick={() => {
-                            if (draftSpawnTarget && showSpawnPicker) {
+                            if (spawnPickerTarget && showSpawnPicker) {
                               setPendingTurnSlotCard({ slot: showSpawnPicker.slot as 1 | 2 | 3 | 4, spawn: cell });
                               setShowSpawnPicker(null);
                               return;
@@ -2199,7 +2198,7 @@ export default function GameRoom() {
                             trapTarget ||
                             substituteTarget ||
                             entryTarget ||
-                            draftSpawnTarget) && (
+                            spawnPickerTarget) && (
                             <div className="absolute inset-0 bg-amber-300/15 backdrop-blur-[1px] pointer-events-none" />
                           )}
                           {shardAmt > 0 && (
