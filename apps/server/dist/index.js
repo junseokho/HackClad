@@ -5,7 +5,13 @@ import { env } from "./config/env.js";
 import { registerRoutes } from "./http/routes.js";
 import { attachWebSocketServer } from "./ws/server.js";
 const app = express();
-app.use(cors({ origin: env.CORS_ORIGIN === "*" ? true : env.CORS_ORIGIN, credentials: false }));
+const corsOrigin = env.CORS_ORIGIN === "*" ? true : [env.CORS_ORIGIN];
+app.use(cors({
+    origin: corsOrigin,
+    credentials: false,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json());
 registerRoutes(app);
 const server = http.createServer(app);

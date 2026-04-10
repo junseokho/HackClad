@@ -1408,8 +1408,10 @@ export default function GameRoom() {
     const nextStandby = Math.min(...unchosen.map((p) => p.standbySlot ?? 99));
     return unchosen.find((p) => (p.standbySlot ?? 99) === nextStandby) ?? null;
   }, [state]);
-  const meNeedsEnhanced = !!state?.players.find((p) => p.userId === meId && p.needsEnhancedPick);
   const meEnhancedOptions = state?.players.find((p) => p.userId === meId)?.enhancedOptions ?? [];
+  const meNeedsEnhanced = !!state?.players.find(
+    (p) => p.userId === meId && p.needsEnhancedPick && Array.isArray(p.enhancedOptions) && p.enhancedOptions.length > 0
+  );
 
   const bossVoltage = state?.boss.voltage ?? state?.voltage;
   const bossActionCards = state?.boss.foresight.length
@@ -1897,7 +1899,12 @@ export default function GameRoom() {
     finalizeSlot4Move(cell);
   }
 
-  const showDraftOverlay = state?.phase === "draft" && !slot3ReturnPrompt && !slot4MovePrompt && !pendingTurnSlotCard;
+  const showDraftOverlay =
+    state?.phase === "draft" &&
+    !slot3ReturnPrompt &&
+    !slot4MovePrompt &&
+    !pendingTurnSlotCard &&
+    !showSpawnPicker;
 
   useEffect(() => {
     if (state?.phase !== "draft") {

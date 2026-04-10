@@ -80,9 +80,8 @@ async function createPvpRoom(roomId: string, selected: AuthedClient[]) {
 
     // Build starter-only deck (8 starters) and enhanced options (non-starters) from pool
     const starters = pool.filter((p) => p.isStarter).slice(0, 8);
-    const enhanced = pool.filter((p) => !p.isStarter);
     const starterCodes = starters.map((c) => c.card.code);
-    const enhancedOptions = enhanced.map((c) => c.card.code);
+    const enhancedOptions = pool.filter((p) => !p.isStarter).map((p) => p.card.code);
 
     const ENTRY_POINTS: Array<{ x: number; y: number }> = [
       { x: -2, y: -1 }, // Entry A

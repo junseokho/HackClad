@@ -7,7 +7,7 @@ export class GameWS {
   private pendingQueue: WsMessage[] = [];
 
   connect(token: string, onMessage: (msg: WsMessage) => void) {
-    const url = import.meta.env.VITE_WS_URL as string;
+    const url = (import.meta.env.VITE_WS_URL as string) ?? "ws://localhost:3000";
     console.log("[WS] connect() called", {
       hasWs: !!this.ws,
       isConnecting: this.isConnecting,
